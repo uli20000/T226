@@ -1,0 +1,26 @@
+name: Prepare 226 website assets
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/prepare-226.yml'
+permissions:
+  contents: write
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download existing public application assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p migration-source assets
+          curl --fail --silent --show-error --max-time 45 --retry 2 https://wl-226-daily.snowygame.chatgpt.site/ -o migration-source/public-page.html
+          curl --fail --silent --show-error --max-time 45 --retry 2 https://wl-226-daily.snowygame.chatgpt.site/assets/xlsx.js -o assets/xlsx.js
+          node -e "const fs=require('fs');const p=fs.readFileSync('migration-source/public-page.html','utf8');if(!p.includes('CLIENT_SCRIPT')&&!p.includes('async function api('))throw Error('Unexpected public page');const x=fs.readFileSync('assets/xlsx.js','utf8');if(!x.includes('XLSX'))throw Error('Unexpected workbook parser');"
+          git add migration-source/public-page.html assets/xlsx.js
+          if ! git diff --cached --quiet; then
+            git -c user.name='226 deployment' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Preserve existing public 226 interface and Excel parser'
+            git push
+          fi
