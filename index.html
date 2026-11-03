@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>226 連線測試</title>
+<title>226 連線測試 · 997</title>
 <link rel="icon" href="data:,">
 <style>
 *{box-sizing:border-box}body{margin:0;background:#f3f5f2;color:#20372d;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:center}
@@ -19,10 +19,11 @@ button{font:inherit;min-height:44px;padding:10px 28px;background:#245b49;color:w
 <body>
 <main>
 <h1>226 連線測試</h1>
+<p class="muted">新版測試：997 後台</p>
 <p class="muted">請用公司電腦開啟這個頁面。</p>
 <div class="cards">
 <section class="card" aria-labelledby="page-title"><h2 id="page-title">網頁顯示</h2><div class="status ok">正常</div><p class="note" id="script-status">正在檢查程式</p></section>
-<section class="card" aria-labelledby="data-title"><h2 id="data-title">資料服務</h2><div class="status" id="service-status" aria-live="polite">等待檢查</div><p class="note" id="service-note">檢查與 995 相同的服務</p></section>
+<section class="card" aria-labelledby="data-title"><h2 id="data-title">997 資料服務</h2><div class="status" id="service-status" aria-live="polite">等待檢查</div><p class="note" id="service-note">檢查正式後台連線</p></section>
 </div>
 <button id="retry" type="button" disabled>重新檢查</button>
 <p id="result" role="status">正在檢查連線，請稍候。</p>
@@ -34,7 +35,7 @@ button{font:inherit;min-height:44px;padding:10px 28px;background:#245b49;color:w
 <script>
 (function(){
 "use strict";
-var endpoint="https://nurnboqwhctyswcufkyk.supabase.co/auth/v1/health";
+var endpoint="https://qhztjliketfujfiwemxh.supabase.co/functions/v1/wl226-api/api/status";
 var active=false;
 function el(id){return document.getElementById(id);}
 el("script-status").textContent="程式執行正常";
@@ -51,21 +52,20 @@ function check(){
   el("service-status").className="status "+(ok?"ok":"bad");
   el("service-status").textContent=label;
   el("service-note").textContent=note;
-  el("result").textContent=ok?"兩項正常，具備進一步測試條件。":"請將這個畫面拍給我確認。";
+  el("result").textContent=ok?"997 連線正常，可繼續搬移資料。":"請將這個畫面拍給我確認。";
   el("stamp").textContent="測試時間："+new Date().toLocaleString("zh-TW",{hour12:false});
   el("retry").disabled=false;
  }
  request.onload=function(){
   var response;
   try{response=JSON.parse(request.responseText);}catch(e){finish(false,"回應異常","收到非預期的網站內容");return;}
-  var missingKey=request.status===401&&response&&/api.?key/i.test(String(response.message||""));
-  var healthy=request.status===200&&response&&typeof response.version==="string"&&response.name==="GoTrue";
-  if(missingKey||healthy)finish(true,"可連線","尚未測試登入或檔案上傳");
+  var healthy=request.status===200&&response&&typeof response.configured==="boolean"&&typeof response.authenticated==="boolean"&&response.account==="tw0226r@kfctaiwan.com";
+  if(healthy)finish(true,"可連線","尚未測試登入或檔案上傳");
   else finish(false,"回應異常","請交由資訊人員確認");
  };
  request.onerror=function(){finish(false,"無法連線","可能受網路或安全設定限制");};
  request.ontimeout=function(){finish(false,"連線逾時","請交由資訊人員確認");};
- try{request.open("GET",endpoint,true);request.timeout=12000;request.withCredentials=false;request.send();}
+ try{request.open("GET",endpoint,true);request.timeout=12000;request.withCredentials=false;request.setRequestHeader("X-WL-Client-Version","6");request.send();}
  catch(e){finish(false,"無法執行","請使用新版 Edge 或 Chrome");}
 }
 el("retry").onclick=check;
