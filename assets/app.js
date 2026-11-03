@@ -31,16 +31,77 @@ function queueSave(k,r,input,status){clearTimeout(state.timers.get(k));state.tim
 async function flush(){for(const[k]of state.timers){const[date,id]=k.split('/');const r=state.records.find(x=>x.date===date&&x.id===id);const inputs=[...$('records').querySelectorAll('input')];const input=inputs.find(x=>x.getAttribute('aria-label')===date+' '+r.name+'差異原因');if(input)queueSave(k,r,input,input.parentElement.querySelector('.save-status'))}await Promise.all([...state.queues.values()]);if(state.dirty.size)throw Error('仍有原因未儲存，請重試後繼續')}
 function renderSummary(){const summary=state.summary;if(!summary)return;$('cumulative-count').textContent='本期間 · '+summary.days+' 日資料';$('cumulative-range').textContent=summary.days?range().map(d=>d.replaceAll('-','/')).join(' – '):'本期間尚無報表';$('cumulative').innerHTML=summary.items.map(r=>'<div class="product"><div class="product-name">'+esc(r.name)+'</div><div class="product-number '+(r.difference<0?'negative':'positive')+'">'+(r.days?signed(r.difference):'—')+'</div><small>'+(r.days?'累計 '+r.days+' 日':'尚無資料')+'</small></div>').join('')}
 async function load(){if(state.loading){state.reload=true;return false}state.loading=true;let success=false;try{await flush();updateRange();const[a,b]=range();if(!a||!b||a>b)throw Error('請選擇有效的日期區間');$('sync-status').textContent='正在讀取所選日期…';const data=await api('records?start='+a+'&end='+b);const summary=data.summary;if(range().join()!==[a,b].join()){state.reload=true;return false}const fingerprint=JSON.stringify(data);const changed=state.dataFingerprint!==fingerprint;state.dataFingerprint=fingerprint;state.summary=summary;if(changed){state.records=data.records;state.reports=data.reports;state.queues.clear()}if(changed||state.renderedRange!==[a,b].join()){state.renderedRange=[a,b].join();render()}success=true;$('sync-status').textContent='同步於 '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});}catch(e){message(e.message,true)}finally{state.loading=false;if(state.reload){state.reload=false;load()}}return success}
-async function start(){state.setup=false;$('login-button').disabled=false;if(sessionToken){$('auth').hidden=true;$('app').hidden=false;window.wlBoot?.ready();await load();return}$('auth').hidden=false;$('app').hidden=true;$('auth-title').textContent='登入每日差異';$('confirm-label').hidden=true;$('password').autocomplete='current-password';$('password').minLength=1;$('login-button').textContent='登入';$('login-button').disabled=false;$('auth-note').textContent='僅供授權同事共同使用';window.wlBoot?.ready()}
+async function start(){state.setup=false;$('login-button').disabled=false;if(sessionToken){$('auth').hidden=true;$('app').hidden=false;window.wlBoot?.ready();const loaded=await load();if(loaded&&sessionToken&&!$('app').hidden)await cloudPending.process();return}$('auth').hidden=false;$('app').hidden=true;$('auth-title').textContent='登入每日差異';$('confirm-label').hidden=true;$('password').autocomplete='current-password';$('password').minLength=1;$('login-button').textContent='登入';$('login-button').disabled=false;$('auth-note').textContent='僅供授權同事共同使用';window.wlBoot?.ready()}
 $('auth-form').onsubmit=async e=>{e.preventDefault();$('auth-error').textContent='';const button=$('login-button');button.disabled=true;try{const password=$('password').value;if(state.setup){if(password!==$('confirm-password').value)throw Error('兩次密碼不一致');await post('setup',{token:state.token,password});state.token=''}else await post('login',{account:$('account').value,password});$('password').value='';$('confirm-password').value='';await start()}catch(e){$('auth-error').textContent=e.message}finally{button.disabled=false}};
 $('anchor').value=today();$('start').value=today();$('end').value=today();document.querySelectorAll('[data-period]').forEach(button=>button.onclick=async()=>{try{await flush();state.period=button.dataset.period;await load()}catch(e){message(e.message,true)}});$('anchor').onchange=load;$('start').onchange=load;$('end').onchange=load;
 function shift(n){const d=new Date($('anchor').value+'T12:00:00');if(state.period==='month'){d.setDate(1);d.setMonth(d.getMonth()+n)}else d.setDate(d.getDate()+n*(state.period==='week'?7:1));$('anchor').value=dateString(d);load()}
 $('previous').onclick=()=>shift(-1);$('next').onclick=()=>shift(1);$('logout').onclick=async()=>{try{await flush();await post('logout',{});state.records=[];await start()}catch(e){message(e.message,true)}};
+// Candidate bridge. Runs on the existing W+L origin only; never sends sessions.
+const DRIVE_ORIGIN='https://n-odhjluzlngrs2uj42cxlp43q43bxgnhh75xv2gq-0lu-script.googleusercontent.com';
+function validEnvelope(event,{opener,nonce}){
+ return !!opener&&event.source===opener&&event.origin===DRIVE_ORIGIN&&
+ /^[a-f0-9-]{36}$/.test(nonce)&&event.data?.type==='wl226-files'&&event.data.nonce===nonce;
+}
+async function decodeFiles(items,{crypto,File,atob}){
+ if(!Array.isArray(items)||items.length<1||items.length>31)throw Error('雲端檔案須為1至31份');
+ let total=0;const seen=new Set(),files=[];
+ for(const item of items){
+  if(!item||typeof item.name!=='string'||!/^.{1,200}\.xlsx$/i.test(item.name)||/^~\$/.test(item.name)||/[\/\\\x00-\x1f]/.test(item.name))throw Error('雲端檔名不正確');
+  if(typeof item.base64!=='string'||item.base64.length>28*1024*1024||!Number.isInteger(item.size)||item.size<1||item.size>20*1024*1024||!/^[a-f0-9]{64}$/.test(item.sha256))throw Error('雲端檔案超出限制');
+  total+=item.size;if(total>50*1024*1024)throw Error('本批超過50MB');
+  const bytes=Uint8Array.from(atob(item.base64),c=>c.charCodeAt(0));
+  const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
+  if(bytes.length!==item.size||hash!==item.sha256)throw Error('雲端檔案傳輸核對失敗');
+  if(seen.has(hash))continue;seen.add(hash);files.push(new File([bytes],item.name,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+ }
+ return files;
+}
+function installReceiver({window,onFiles,onError}){
+ const nonce=new URL(window.location.href).searchParams.get('cloudImport');
+ const opener=window.opener;if(!opener||!nonce||!/^[a-f0-9-]{36}$/.test(nonce))return ()=>{};
+ let used=false;const listener=async event=>{
+  if(used||!validEnvelope(event,{opener,nonce}))return;
+  used=true;window.removeEventListener('message',listener);clearInterval(timer);clearTimeout(expiry);
+  try{const files=await decodeFiles(event.data.files,{crypto:window.crypto,File:window.File,atob:window.atob.bind(window)});await onFiles(files)}catch(error){onError(error)}
+ };
+ const ready=()=>opener.postMessage({type:'wl226-ready',nonce},DRIVE_ORIGIN);
+ window.addEventListener('message',listener);const timer=setInterval(ready,1000);
+ const expiry=setTimeout(()=>{used=true;window.removeEventListener('message',listener);clearInterval(timer);onError(Error('雲端傳送逾時，請重新讀取'))},120000);ready();
+ return ()=>{used=true;window.removeEventListener('message',listener);clearInterval(timer);clearTimeout(expiry)};
+}
+
+// In-memory pending files survive auth/flush/preview failures; never retries a DB write.
+function createPendingImport({isReady,flush,load,preview,notify}){
+ let pending=null,busy=false;
+ const report=(status,error)=>notify({status,pending:!!pending,error});
+ async function process(){
+  if(!pending||busy)return false;
+  if(!isReady()){report('waiting-login');return false}
+  busy=true;const files=pending;
+  try{
+   await flush();
+   if(!await load()||!isReady()){report('waiting-login');return false}
+   if(await preview(files)!==true){report('preview-failed');return false}
+   if(pending===files)pending=null;
+   report('preview-ready');return true;
+  }catch(error){report('retry',error.message||String(error));return false}
+  finally{busy=false}
+ }
+ return {enqueue:async files=>{if(pending)throw Error('仍有雲端報表待處理，請先重試');pending=files;report('received');return process()},process,hasPending:()=>!!pending};
+}
+
+
+const cloudRetry=document.createElement('button');cloudRetry.textContent='重試雲端報表';cloudRetry.hidden=true;$('upload-button').parentElement.append(cloudRetry);
+const cloudPending=createPendingImport({isReady:()=>!!sessionToken&&!$('app').hidden&&!state.busy&&$('upload-modal').hidden,flush,load,preview:previewFiles,notify:({status,pending,error})=>{cloudRetry.hidden=!pending;const labels={'received':'已收到雲端報表','waiting-login':'雲端報表已保留，請登入或稍後重試','preview-failed':'雲端報表已保留，請核對預覽錯誤後重試','retry':'雲端報表已保留：'+error,'preview-ready':'雲端報表已進入預覽，請確認匯入'};message(labels[status]||status,status==='retry'||status==='preview-failed');if(window.opener)window.opener.postMessage({type:'wl226-status',nonce:new URL(location.href).searchParams.get('cloudImport'),status},DRIVE_ORIGIN)}});
+cloudRetry.onclick=()=>cloudPending.process();
+installReceiver({window,onFiles:files=>cloudPending.enqueue(files),onError:e=>message(e.message,true)});
+
 let focusBefore;function closeModal(){if(state.busy)return;$('upload-modal').hidden=true;state.uploads=[];$('files').value='';focusBefore?.focus()}
 $('upload-button').onclick=async()=>{try{await flush();$('files').click()}catch(e){message(e.message,true)}};$('close-modal').onclick=closeModal;$('cancel-import').onclick=closeModal;
 function uploadForm(file,date='',overwrite=false,sheet=''){const f=new FormData();f.append('file',file);if(sheet)f.append('sheet',sheet);if(date)f.append('date',date);if(overwrite)f.append('overwrite','yes');return f}
-$('files').onchange=async()=>{const files=[...$('files').files];if(!files.length)return;if(files.length>31){message('一次最多上傳 31 個檔案',true);return}focusBefore=document.activeElement;$('upload-modal').hidden=false;$('upload-list').innerHTML='<div class="loading">正在讀取報表…</div>';$('upload-error').textContent='';$('confirm-import').disabled=true;state.uploads=[];state.busy=true;
- for(const file of files){try{const result=await api('preview',{method:'POST',body:uploadForm(file)});if(!Array.isArray(result.sheets)&&!Array.isArray(result.items))throw Error('預覽格式已更新，請重新整理後再選檔');for(const item of result.sheets||[result])state.uploads.push({file,result:item,sheet:item.sheet,date:item.date||'',error:item.error||(!Array.isArray(item.items)?'此分頁沒有有效報表資料':null),selected:!item.error,overwrite:false})}catch(e){state.uploads.push({file,error:e.message})}}state.busy=false;const months={};for(const u of state.uploads)if(u.date&&!u.error)months[u.date.slice(0,7)]=(months[u.date.slice(0,7)]||0)+1;const month=Object.keys(months).sort((a,b)=>months[b]-months[a])[0];if(month){$('upload-month').value=month;for(const u of state.uploads)u.selected=!u.error&&u.date.startsWith(month)}$('upload-skipped').textContent='依分頁日期匯入，摘要頁不納入。';renderUploads();$('close-modal').focus()};
+$('files').onchange=()=>previewFiles([...$('files').files]);
+async function previewFiles(files){if(!files.length)return;if(files.length>31){message('一次最多上傳 31 個檔案',true);return}focusBefore=document.activeElement;$('upload-modal').hidden=false;$('upload-list').innerHTML='<div class="loading">正在讀取報表…</div>';$('upload-error').textContent='';$('confirm-import').disabled=true;state.uploads=[];state.busy=true;
+ for(const file of files){try{const result=await api('preview',{method:'POST',body:uploadForm(file)});if(!Array.isArray(result.sheets)&&!Array.isArray(result.items))throw Error('預覽格式已更新，請重新整理後再選檔');for(const item of result.sheets||[result])state.uploads.push({file,result:item,sheet:item.sheet,date:item.date||'',error:item.error||(!Array.isArray(item.items)?'此分頁沒有有效報表資料':null),selected:!item.error,overwrite:false})}catch(e){state.uploads.push({file,error:e.message})}}state.busy=false;const months={};for(const u of state.uploads)if(u.date&&!u.error)months[u.date.slice(0,7)]=(months[u.date.slice(0,7)]||0)+1;const month=Object.keys(months).sort((a,b)=>months[b]-months[a])[0];if(month){$('upload-month').value=month;for(const u of state.uploads)u.selected=!u.error&&u.date.startsWith(month)}$('upload-skipped').textContent='依分頁日期匯入，摘要頁不納入。';renderUploads();$('close-modal').focus();return !state.uploads.some(u=>u.error)}
 function renderUploads(){$('upload-list').replaceChildren();for(const u of state.uploads){const card=document.createElement('div');card.className='upload-card';const title=document.createElement('div');title.className='file-name';title.textContent=u.file.name+(u.sheet?' · '+u.sheet:'');title.setAttribute('title',u.file.name);const selection=document.createElement('label');selection.className='upload-selection';const chosen=document.createElement('input');chosen.type='checkbox';chosen.checked=!!u.selected;chosen.disabled=!!u.error;chosen.setAttribute('aria-label','選取 '+u.file.name+' '+(u.sheet||''));chosen.onchange=()=>{u.selected=chosen.checked;updateImportButton()};selection.append(chosen,title);card.append(selection);if(u.error){const e=document.createElement('p');e.className='error-text';e.textContent=u.error;card.append(e)}else{const facts=document.createElement('div');facts.className='upload-facts';for(const text of ['226 店',u.result.items.length+' 個品項',...(u.result.warnings||[])]){const span=document.createElement('span');span.textContent=text;facts.append(span)}card.append(facts);const label=document.createElement('label');label.textContent=u.date?'報表日期（可更正）':'日期異常，請手動指定';const input=document.createElement('input');input.type='date';input.value=u.date;input.onchange=()=>{u.date=input.value;updateImportButton()};label.append(input);card.append(label);const check=document.createElement('label');check.className='check';const box=document.createElement('input');box.type='checkbox';box.checked=u.overwrite;box.onchange=()=>u.overwrite=box.checked;check.append(box,document.createTextNode(u.result.exists?'已有同日資料，確認覆蓋':'若日期重複，同意覆蓋既有資料'));card.append(check)}$('upload-list').append(card)}updateImportButton()}
 function updateImportButton(){$('confirm-import').disabled=state.busy||!state.uploads.some(u=>u.selected&&!u.error&&u.date)}
 const batchJobs=new WeakMap();
