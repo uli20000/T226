@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>226 連線測試</title>
+<link rel="icon" href="data:,">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f5f2;color:#20372d;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;text-align:center}
+main{max-width:720px;margin:48px auto;padding:0 16px}h1{font-size:26px;margin:0 0 8px}p{margin:8px 0}.muted{color:#64776a;font-size:14px}
+.cards{display:flex;gap:12px;margin:28px 0 20px}.card{flex:1;min-width:0;background:white;border:1px solid #dce4dd;border-radius:12px;padding:24px 8px}.card h2{font-size:16px;font-weight:500;margin:0 0 14px;white-space:nowrap}
+.status{font-size:24px;font-weight:600;white-space:nowrap}.ok{color:#245b49}.bad{color:#a34630}.note{font-size:13px;min-height:42px;margin-top:10px}
+button{font:inherit;min-height:44px;padding:10px 28px;background:#245b49;color:white;border:0;border-radius:9px;cursor:pointer}button:disabled{opacity:.6;cursor:wait}button:focus-visible{outline:3px solid #7ba48e;outline-offset:3px}
+#result{margin:20px 0 10px;padding:16px;background:#e8eee8;border-radius:10px;font-size:15px}#stamp{font-size:12px;color:#64776a}
+@media(max-width:400px){main{margin-top:28px}.cards{gap:8px}.card{padding:20px 4px}.status{font-size:21px}.note{font-size:12px}}
+</style>
+</head>
+<body>
+<main>
+<h1>226 連線測試</h1>
+<p class="muted">請用公司電腦開啟這個頁面。</p>
+<div class="cards">
+<section class="card" aria-labelledby="page-title"><h2 id="page-title">網頁顯示</h2><div class="status ok">正常</div><p class="note" id="script-status">正在檢查程式</p></section>
+<section class="card" aria-labelledby="data-title"><h2 id="data-title">資料服務</h2><div class="status" id="service-status" aria-live="polite">等待檢查</div><p class="note" id="service-note">檢查與 995 相同的服務</p></section>
+</div>
+<button id="retry" type="button" disabled>重新檢查</button>
+<p id="result" role="status">正在檢查連線，請稍候。</p>
+<p class="muted">只測試連線，不需要登入。</p>
+<p class="muted">不會上傳檔案或更動任何資料。</p>
+<p id="stamp"></p>
+<noscript><p class="bad">網站程式未啟用，請聯絡資訊人員。</p></noscript>
+</main>
+<script>
+(function(){
+"use strict";
+var endpoint="https://nurnboqwhctyswcufkyk.supabase.co/auth/v1/health";
+var active=false;
+function el(id){return document.getElementById(id);}
+el("script-status").textContent="程式執行正常";
+function check(){
+ if(active)return;active=true;el("retry").disabled=true;
+ el("service-status").textContent="檢查中";
+ el("service-status").className="status";
+ el("service-note").textContent="最久等待 12 秒";
+ el("result").textContent="正在檢查連線，請稍候。";
+ el("stamp").textContent="";
+ var request=new XMLHttpRequest(),finished=false;
+ function finish(ok,label,note){
+  if(finished)return;finished=true;active=false;
+  el("service-status").className="status "+(ok?"ok":"bad");
+  el("service-status").textContent=label;
+  el("service-note").textContent=note;
+  el("result").textContent=ok?"兩項正常，具備進一步測試條件。":"請將這個畫面拍給我確認。";
+  el("stamp").textContent="測試時間："+new Date().toLocaleString("zh-TW",{hour12:false});
+  el("retry").disabled=false;
+ }
+ request.onload=function(){
+  var response;
+  try{response=JSON.parse(request.responseText);}catch(e){finish(false,"回應異常","收到非預期的網站內容");return;}
+  var missingKey=request.status===401&&response&&/api.?key/i.test(String(response.message||""));
+  var healthy=request.status===200&&response&&typeof response.version==="string"&&response.name==="GoTrue";
+  if(missingKey||healthy)finish(true,"可連線","尚未測試登入或檔案上傳");
+  else finish(false,"回應異常","請交由資訊人員確認");
+ };
+ request.onerror=function(){finish(false,"無法連線","可能受網路或安全設定限制");};
+ request.ontimeout=function(){finish(false,"連線逾時","請交由資訊人員確認");};
+ try{request.open("GET",endpoint,true);request.timeout=12000;request.withCredentials=false;request.send();}
+ catch(e){finish(false,"無法執行","請使用新版 Edge 或 Chrome");}
+}
+el("retry").onclick=check;
+check();
+})();
+</script>
+</body>
+</html>
