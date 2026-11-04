@@ -91,9 +91,23 @@ function createPendingImport({isReady,flush,load,preview,notify}){
 }
 
 
-const cloudRetry=document.createElement('button');cloudRetry.textContent='重試雲端報表';cloudRetry.hidden=true;$('upload-button').parentElement.append(cloudRetry);
+const cloudRetry=document.createElement('button');cloudRetry.textContent='重試雲端報表';cloudRetry.hidden=true;$('upload-button').parentElement.after(cloudRetry);
 const cloudPending=createPendingImport({isReady:()=>!!sessionToken&&!$('app').hidden&&!state.busy&&$('upload-modal').hidden,flush,load,preview:previewFiles,notify:({status,pending,error})=>{cloudRetry.hidden=!pending;const labels={'received':'已收到雲端報表','waiting-login':'雲端報表已保留，請登入或稍後重試','preview-failed':'雲端報表已保留，請核對預覽錯誤後重試','retry':'雲端報表已保留：'+error,'preview-ready':'雲端報表已進入預覽，請確認匯入'};message(labels[status]||status,status==='retry'||status==='preview-failed');if(window.opener)window.opener.postMessage({type:'wl226-status',nonce:new URL(location.href).searchParams.get('cloudImport'),status},DRIVE_ORIGIN)}});
 cloudRetry.onclick=()=>cloudPending.process();
+const driveButton=$('read-drive-button');
+driveButton.onclick=async()=>{
+ if(driveButton.disabled||state.busy||!$('upload-modal').hidden)return;
+ driveButton.disabled=true;
+ driveButton.textContent='讀取中…';
+ try{
+  if(cloudPending.hasPending()){await cloudPending.process();return}
+  await flush();
+  const {files}=await api('drive-reports');
+  const reports=await decodeFiles(files,{crypto:window.crypto,File:window.File,atob:window.atob.bind(window)});
+  await cloudPending.enqueue(reports);
+ }catch(error){message(error.message,true)}
+ finally{driveButton.disabled=false;driveButton.textContent='讀取資料'}
+};
 installReceiver({window,onFiles:files=>cloudPending.enqueue(files),onError:e=>message(e.message,true)});
 
 let focusBefore;function closeModal(){if(state.busy)return;$('upload-modal').hidden=true;state.uploads=[];$('files').value='';focusBefore?.focus()}
