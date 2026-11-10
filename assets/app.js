@@ -49,9 +49,11 @@ function render() {
   badge();
   const periodDrilldown = state.period === 'week' || state.period === 'month';
   const reasonPanel = document.querySelector('.layout-reasons');
-  if (reasonPanel) reasonPanel.hidden = periodDrilldown && (!activeProduct || !activeDate);
+  if (reasonPanel) reasonPanel.hidden = periodDrilldown;
   $('daily-details').textContent = '差異原因';
   const list = $('records');
+  if (reasonPanel) reasonPanel.append(list);
+  list.className = periodDrilldown ? 'list inline-date-reason' : 'list';
   list.replaceChildren();
   $('product-daily-details').replaceChildren();
   const labels = document.querySelector('.header-labels');
@@ -96,6 +98,7 @@ function render() {
       value.textContent = signed(row.difference);
       line.append(date, value);
       section.append(line);
+      if (activeDate === row.date) section.append(list);
     }
     if (!rows.length) {
       const notice = document.createElement('p');
@@ -108,7 +111,7 @@ function render() {
     const selected = state.records.find(row => row.id === activeProduct && row.date === activeDate);
     if (selected) {
       $('daily-details').textContent = selected.name + ' · ' + selected.date.replaceAll('-', '/') + ' 差異原因';
-      if (needsReason(selected)) appendPendingReason(selected, list);
+      if (needsReason(selected)) appendPendingReason(selected, list, true);
       else {
         const reason = document.createElement('p');
         reason.className = 'notice';
@@ -123,12 +126,12 @@ function render() {
     for (const row of pending) appendPendingReason(row, list);
   }
 }
-function appendPendingReason(row, container) {
+function appendPendingReason(row, container, compact = false) {
   const key = row.date + '/' + row.id;
   const article = document.createElement('article');
-  article.className = 'record';
+  article.className = compact ? 'inline-reason' : 'record';
   article.dataset.key = key;
-  article.innerHTML = '<div class="record-title"><h3>' + esc(row.name) + '</h3><small>' + esc(row.date.replaceAll('-', '/')) + '</small></div><div class="record-difference ' + (row.difference < 0 ? 'negative' : 'positive') + '">' + signed(row.difference) + '</div><label class="reason">差異原因<input type="text" maxlength="2000" placeholder="輸入差異原因" aria-label="' + esc(row.date + ' ' + row.name + '差異原因') + '"><span class="save-status" aria-live="polite">原因待填</span></label>';
+  article.innerHTML = (compact ? '' : '<div class="record-title"><h3>' + esc(row.name) + '</h3><small>' + esc(row.date.replaceAll('-', '/')) + '</small></div><div class="record-difference ' + (row.difference < 0 ? 'negative' : 'positive') + '">' + signed(row.difference) + '</div>') + '<label class="reason">差異原因<input type="text" maxlength="2000" placeholder="輸入差異原因" aria-label="' + esc(row.date + ' ' + row.name + '差異原因') + '"><span class="save-status" aria-live="polite">原因待填</span></label>';
   const input = article.querySelector('input');
   const status = article.querySelector('.save-status');
   input.value = row.reason;
