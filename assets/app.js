@@ -4,7 +4,6 @@ const API_BASE='https://qhztjliketfujfiwemxh.supabase.co/functions/v1/wl226-api/
 let sessionToken='';try{sessionToken=sessionStorage.getItem('wl226.session')||''}catch{}
 function rememberSession(token){sessionToken=token||'';try{if(sessionToken)sessionStorage.setItem('wl226.session',sessionToken);else sessionStorage.removeItem('wl226.session')}catch{}}
 function apiFetch(path,options={}){return fetch(API_BASE+path,{...options,credentials:'omit',headers:{...(/^(preview|import|import-batch)(?:\?|$)/.test(path)?{'X-WL-Client-Version':'6'}:{}),...(sessionToken?{Authorization:'Bearer '+sessionToken}:{}),...options.headers}})}
-async function downloadOriginal(date){try{const r=await apiFetch('original?date='+encodeURIComponent(date));if(!r.ok){const error=await r.json();throw Error(error.error||'下載失敗')}const blob=await r.blob();const link=document.createElement('a');link.href=URL.createObjectURL(blob);const supplied=r.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1];link.download=supplied||('226-'+date+'.xlsx');link.click();setTimeout(()=>URL.revokeObjectURL(link.href),30000)}catch(e){message(e.message,true)}}
 
 if(window.wlBoot)window.wlBoot.began=true;
 const $=id=>document.getElementById(id),PRODUCTS=[['tart','撻皮'],['meat','雞腿堡肉片'],['strip','腿條'],['chicken','九塊雞'],['flour','麵粉']];
@@ -21,52 +20,131 @@ function post(path,body){return api(path,{method:'POST',body:JSON.stringify(body
 let excelPromise;function loadExcel(){if(window.XLSX)return Promise.resolve();if(!excelPromise)excelPromise=new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='./assets/xlsx.js';script.onload=resolve;script.onerror=()=>{excelPromise=null;script.remove();reject(Error('Excel 元件載入失敗，請重試'))};document.head.append(script)});return excelPromise}
 function range(){if(state.period==='custom')return[$('start').value,$('end').value];const d=new Date($('anchor').value+'T12:00:00');let a=new Date(d),b=new Date(d);if(state.period==='week'){a.setDate(a.getDate()-(a.getDay()+6)%7);b=new Date(a);b.setDate(b.getDate()+6)}if(state.period==='month'){a.setDate(1);b=new Date(d.getFullYear(),d.getMonth()+1,0,12)}return[dateString(a),dateString(b)]}
 function updateRange(){const[a,b]=range();const label={day:'日',week:'週',month:'月',custom:'區間'}[state.period];$('cumulative-title').textContent=label+'累計差異';$('material-scope').textContent=label+'查詢：'+(a===b?a:a+' – '+b);$('range-label').textContent=a===b?a.replaceAll('-','/'):a.replaceAll('-','/')+' – '+b.replaceAll('-','/');$('custom-range').hidden=state.period!=='custom';$('date-nav').hidden=state.period==='custom';document.querySelectorAll('[data-period]').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.period===state.period)))}
-function badge(){if(!state.records.length){$('pending-count').textContent='尚無資料';return}const n=state.records.filter(x=>x.difference!==0&&(!x.reason.trim()||x.review)).length;$('pending-count').textContent=n?'待填／待確認 '+n+' 筆':'原因已齊全'}
-function render(){if(materialQuery&&(materialRange!==range().join()||materialFingerprint!==state.reports.map(r=>r.date+':'+r.uploadedAt).sort().join())){clearMaterialResults(false);if(materialBusy)materialReload=true;else searchMaterials(0)}renderSummary();badge();
- const list=$('records');const expanded=new Set([...list.querySelectorAll('article[data-key]')].filter(x=>x.querySelector('details')?.open).map(x=>x.dataset.key));list.replaceChildren();if(!state.records.length){list.innerHTML='<div class="panel empty"><h2>此區間尚無報表</h2><p>上傳每日 Excel，即可查看差異。</p><button id="empty-upload">上傳第一份報表</button></div>';$('empty-upload').onclick=()=>$('files').click();return}
- const dates=[...new Set(state.records.map(row=>row.date))].sort().reverse();
- const byProduct=state.period==='week'||state.period==='month';
- const groups=byProduct
-   ? PRODUCTS.map(([id,name])=>({label:name,dates,ids:[id]}))
-   : dates.map(date=>({label:date.replaceAll('-','/'),dates:[date],ids:PRODUCTS.map(([id])=>id)}));
- for(const group of groups){
-   const section=document.createElement('section');section.className='list';
-   section.setAttribute('aria-label',group.label+(byProduct?'逐日差異':'每日差異'));
-   const heading=document.createElement('div');heading.className='section-head';
-   if(byProduct)heading.style.gridTemplateColumns='1fr';
-   const title=document.createElement(byProduct?'h2':'div');title.className='day-heading';title.textContent=group.label;
-   if(byProduct){title.style.fontSize='18px';title.style.textAlign='center'}
-   heading.append(title);section.append(heading);list.append(section);
-   if(!byProduct)heading.append(originalLink(group.dates[0]));
-   for(const date of group.dates){
-     const rows=group.ids.map(id=>state.records.find(row=>row.date===date&&row.id===id)).filter(Boolean);
-     if(!rows.length)continue;
-     const report=state.reports.find(report=>report.date===date);
-     if(report?.warnings?.length){
-       const notice=document.createElement('div');notice.className='notice error-box';
-       report.warnings.forEach(warning=>{const text=document.createElement('span');text.textContent=(byProduct?date+' · ':'')+warning;notice.append(text)});
-       section.append(notice);
-     }
-     for(const row of rows)appendDailyRecord(row,date,expanded,section,byProduct);
-   }
- }
+let activeProduct = null;
+let activeProductRange = '';
+function needsReason(row) {
+  return row.difference !== 0 && !row.reason.trim();
 }
-function originalLink(date){
- const link=document.createElement('a');link.href='#';link.className='source-link';link.textContent='下載原檔';
- link.onclick=event=>{event.preventDefault();downloadOriginal(date)};
- return link;
+function badge() {
+  const count = state.records.filter(needsReason).length;
+  $('pending-count').textContent = !state.records.length ? '尚無資料' : count ? '待填原因 ' + count + ' 筆' : '原因已齊全';
 }
-function appendDailyRecord(r,date,expanded,container,byProduct){
- const id=r.id;
-const k=date+'/'+id;const article=document.createElement('article');article.className='record';article.dataset.key=k;article.innerHTML='<div class="record-title"><h3>'+esc(byProduct?date.replaceAll('-','/'):r.name)+'</h3><small>'+esc(r.unit||'數量')+'</small></div><div class="record-difference '+(r.difference<0?'negative':'positive')+'">'+signed(r.difference)+'</div><label class="reason">差異原因<input type="text" maxlength="2000" placeholder="'+(r.difference?'輸入差異原因':'差異為 0，免填原因')+'" aria-label="'+esc(date+' '+r.name+'差異原因')+'" '+(!r.difference?'disabled':'')+'><span class="save-status" aria-live="polite"></span></label><details><summary>查看數量明細</summary><div class="carry-note"><span>'+'採用當日上傳報表期初；差異＝理論庫存－期末盤點'+'</span>'+''+'</div><div class="detail-grid">'+[['報表期初',r.reportOpening??r.opening],['進貨',r.purchase],['退貨',r.returns],['調入',r.transferIn],['調出',r.transferOut],['損耗',r.loss],['銷售',r.sales],['理論庫存',r.theoretical],['實際盤點',r.actual]].map(([label,v])=>'<div class="detail-cell"><span>'+label+'</span><strong>'+fmt(v)+'</strong></div>').join('')+'</div></details>';
- article.querySelector('details').open=expanded.has(k);const input=article.querySelector('input'),status=article.querySelector('.save-status');input.value=r.reason;status.textContent=!r.difference?'免填原因':r.review?'原因待確認':r.reason.trim()?'已儲存':'原因待填';if(r.review){const b=document.createElement('button');b.type='button';b.textContent='確認原原因';b.onclick=()=>{queueSave(k,r,input,status);b.remove()};article.querySelector('.reason').append(b)}input.oninput=()=>{r.reason=input.value;state.dirty.add(k);status.textContent='等待儲存…';status.classList.remove('error');clearTimeout(state.timers.get(k));state.timers.set(k,setTimeout(()=>queueSave(k,r,input,status),600));badge()};
- if(byProduct)article.querySelector('.record-title').append(originalLink(date));
- container.append(article);
+function render() {
+  const scope = state.period + ':' + range().join();
+  if (activeProductRange !== scope) {
+    activeProduct = null;
+    activeProductRange = scope;
+  }
+  if (materialQuery && (materialRange !== range().join() || materialFingerprint !== state.reports.map(row => row.date + ':' + row.uploadedAt).sort().join())) {
+    clearMaterialResults(false);
+    if (materialBusy) materialReload = true;
+    else searchMaterials(0);
+  }
+  renderSummary();
+  badge();
+  const list = $('records');
+  list.replaceChildren();
+  const labels = document.querySelector('.header-labels');
+  if (labels) labels.hidden = true;
+  if (!state.records.length) {
+    const notice = document.createElement('p');
+    notice.className = 'notice';
+    notice.textContent = '此區間尚無報表，請至報表管理查看。';
+    list.append(notice);
+    return;
+  }
+  if ((state.period === 'week' || state.period === 'month') && activeProduct) {
+    const section = document.createElement('section');
+    section.className = 'panel list';
+    section.setAttribute('aria-label', '產品逐日差異');
+    const heading = document.createElement('h2');
+    heading.textContent = PRODUCTS.find(([id]) => id === activeProduct)[1] + ' · 逐日差異';
+    heading.style.textAlign = 'center';
+    section.append(heading);
+    const rows = state.records.filter(row => row.id === activeProduct).sort((a, b) => b.date.localeCompare(a.date));
+    for (const row of rows) {
+      const line = document.createElement('div');
+      line.className = 'detail-cell';
+      line.style.display = 'grid';
+      line.style.gridTemplateColumns = '1fr 1fr';
+      const date = document.createElement('span');
+      date.textContent = row.date.replaceAll('-', '/');
+      const value = document.createElement('strong');
+      value.className = row.difference < 0 ? 'negative' : 'positive';
+      value.textContent = signed(row.difference);
+      line.append(date, value);
+      section.append(line);
+    }
+    if (!rows.length) {
+      const notice = document.createElement('p');
+      notice.textContent = '此品項在本期間尚無資料';
+      section.append(notice);
+    }
+    list.append(section);
+  }
+  const pending = state.records.filter(needsReason).sort((a, b) => b.date.localeCompare(a.date) || PRODUCTS.findIndex(([id]) => id === a.id) - PRODUCTS.findIndex(([id]) => id === b.id));
+  if (pending.length) {
+    const heading = document.createElement('h2');
+    heading.textContent = '待填差異原因';
+    heading.style.textAlign = 'center';
+    list.append(heading);
+    for (const row of pending) appendPendingReason(row, list);
+  }
 }
-function queueSave(k,r,input,status){clearTimeout(state.timers.get(k));state.timers.delete(k);state.dirty.add(k);const value=input.value;status.textContent='儲存中…';const job=(state.queues.get(k)||Promise.resolve()).catch(()=>{}).then(async()=>{try{await post('reason',{date:r.date,id:r.id,reason:value,difference:r.difference});r.review=false;if(input.value===value){state.dirty.delete(k);status.textContent=value.trim()?'已儲存':'原因待填';status.classList.remove('error')}badge()}catch(e){status.textContent='儲存失敗，點此重試';status.classList.add('error');status.onclick=()=>queueSave(k,r,input,status);message(e.message,true);throw e}});state.queues.set(k,job);job.catch(()=>{});return job}
+function appendPendingReason(row, container) {
+  const key = row.date + '/' + row.id;
+  const article = document.createElement('article');
+  article.className = 'record';
+  article.dataset.key = key;
+  article.innerHTML = '<div class="record-title"><h3>' + esc(row.name) + '</h3><small>' + esc(row.date.replaceAll('-', '/')) + '</small></div><div class="record-difference ' + (row.difference < 0 ? 'negative' : 'positive') + '">' + signed(row.difference) + '</div><label class="reason">差異原因<input type="text" maxlength="2000" placeholder="輸入差異原因" aria-label="' + esc(row.date + ' ' + row.name + '差異原因') + '"><span class="save-status" aria-live="polite">原因待填</span></label>';
+  const input = article.querySelector('input');
+  const status = article.querySelector('.save-status');
+  input.value = row.reason;
+  input.oninput = () => {
+    row.reason = input.value;
+    state.dirty.add(key);
+    status.textContent = '等待儲存…';
+    status.classList.remove('error');
+    clearTimeout(state.timers.get(key));
+    state.timers.set(key, setTimeout(() => queueSave(key, row, input, status), 600));
+    badge();
+  };
+  container.append(article);
+}
+function queueSave(k,r,input,status){clearTimeout(state.timers.get(k));state.timers.delete(k);state.dirty.add(k);const value=input.value;status.textContent='儲存中…';const job=(state.queues.get(k)||Promise.resolve()).catch(()=>{}).then(async()=>{try{await post('reason',{date:r.date,id:r.id,reason:value,difference:r.difference});r.review=false;if(input.value===value){state.dirty.delete(k);status.textContent=value.trim()?'已儲存':'原因待填';status.classList.remove('error');if(value.trim())input.closest('article')?.remove()}badge()}catch(e){status.textContent='儲存失敗，點此重試';status.classList.add('error');status.onclick=()=>queueSave(k,r,input,status);message(e.message,true);throw e}});state.queues.set(k,job);job.catch(()=>{});return job}
 async function flush(){for(const[k]of state.timers){const[date,id]=k.split('/');const r=state.records.find(x=>x.date===date&&x.id===id);const inputs=[...$('records').querySelectorAll('input')];const input=inputs.find(x=>x.getAttribute('aria-label')===date+' '+r.name+'差異原因');if(input)queueSave(k,r,input,input.parentElement.querySelector('.save-status'))}await Promise.all([...state.queues.values()]);if(state.dirty.size)throw Error('仍有原因未儲存，請重試後繼續')}
-function renderSummary(){const summary=state.summary;if(!summary)return;$('cumulative-count').textContent='本期間 · '+summary.days+' 日資料';$('cumulative-range').textContent=summary.days?range().map(d=>d.replaceAll('-','/')).join(' – '):'本期間尚無報表';$('cumulative').innerHTML=summary.items.map(r=>'<div class="product"><div class="product-name">'+esc(r.name)+'</div><div class="product-number '+(r.difference<0?'negative':'positive')+'">'+(r.days?signed(r.difference):'—')+'</div><small>'+(r.days?'累計 '+r.days+' 日':'尚無資料')+'</small></div>').join('')}
-async function load(){if(state.loading){state.reload=true;return false}state.loading=true;let success=false;try{await flush();updateRange();const[a,b]=range();if(!a||!b||a>b)throw Error('請選擇有效的日期區間');$('sync-status').textContent='正在讀取所選日期…';const data=await api('records?start='+a+'&end='+b);const summary=data.summary;if(range().join()!==[a,b].join()){state.reload=true;return false}const fingerprint=JSON.stringify(data);const changed=state.dataFingerprint!==fingerprint;state.dataFingerprint=fingerprint;state.summary=summary;if(changed){state.records=data.records;state.reports=data.reports;state.queues.clear()}if(changed||state.renderedRange!==[a,b].join()){state.renderedRange=[a,b].join();render()}success=true;$('sync-status').textContent='同步於 '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});}catch(e){message(e.message,true)}finally{state.loading=false;if(state.reload){state.reload=false;load()}}return success}
+function renderSummary() {
+  const summary = state.summary;
+  if (!summary) return;
+  $('cumulative-count').textContent = '本期間 · ' + summary.days + ' 日資料';
+  $('cumulative-range').textContent = summary.days ? range().map(date => date.replaceAll('-', '/')).join(' – ') : '本期間尚無報表';
+  const container = $('cumulative');
+  container.innerHTML = summary.items.map(row => '<div class="product" data-product="' + esc(row.id) + '"><div class="product-name">' + esc(row.name) + '</div><div class="product-number ' + (row.difference < 0 ? 'negative' : 'positive') + '">' + (row.days ? signed(row.difference) : '—') + '</div><small>' + (row.days ? '累計 ' + row.days + ' 日' : '尚無資料') + '</small></div>').join('');
+  if (state.period !== 'week' && state.period !== 'month') return;
+  for (const card of container.querySelectorAll('[data-product]')) {
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+    card.setAttribute('aria-expanded', String(activeProduct === card.dataset.product));
+    card.style.cursor = 'pointer';
+    card.style.outline = activeProduct === card.dataset.product ? '2px solid #245b49' : '';
+    const select = async () => {
+      try {
+        await flush();
+        activeProduct = activeProduct === card.dataset.product ? null : card.dataset.product;
+        render();
+      } catch (error) {message(error.message, true);}
+    };
+    card.onclick = select;
+    card.onkeydown = event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        select();
+      }
+    };
+  }
+}
+
+async function load(){if(state.loading){state.reload=true;return false}state.loading=true;let success=false;try{await flush();updateRange();const[a,b]=range();if(!a||!b||a>b)throw Error('請選擇有效的日期區間');$('sync-status').textContent='正在讀取所選日期…';const data=await api('records?start='+a+'&end='+b);const summary=data.summary;if(range().join()!==[a,b].join()){state.reload=true;return false}const fingerprint=JSON.stringify(data);const changed=state.dataFingerprint!==fingerprint;state.dataFingerprint=fingerprint;state.summary=summary;if(changed){state.records=data.records;state.reports=data.reports;state.queues.clear()}if(changed||state.renderedRange!==state.period+':'+[a,b].join()){state.renderedRange=state.period+':'+[a,b].join();render()}success=true;$('sync-status').textContent='同步於 '+new Date().toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'});}catch(e){message(e.message,true)}finally{state.loading=false;if(state.reload){state.reload=false;load()}}return success}
 async function start(){state.setup=false;$('login-button').disabled=false;if(sessionToken){$('auth').hidden=true;$('app').hidden=false;window.wlBoot?.ready();const loaded=await load();if(loaded&&sessionToken&&!$('app').hidden)await cloudPending.process();return}$('auth').hidden=false;$('app').hidden=true;$('auth-title').textContent='登入每日差異';$('confirm-label').hidden=true;$('password').autocomplete='current-password';$('password').minLength=1;$('login-button').textContent='登入';$('login-button').disabled=false;$('auth-note').textContent='僅供授權同事共同使用';window.wlBoot?.ready()}
 $('auth-form').onsubmit=async e=>{e.preventDefault();$('auth-error').textContent='';const button=$('login-button');button.disabled=true;try{const password=$('password').value;if(state.setup){if(password!==$('confirm-password').value)throw Error('兩次密碼不一致');await post('setup',{token:state.token,password});state.token=''}else await post('login',{account:$('account').value,password});$('password').value='';$('confirm-password').value='';await start()}catch(e){$('auth-error').textContent=e.message}finally{button.disabled=false}};
 $('anchor').value=today();$('start').value=today();$('end').value=today();document.querySelectorAll('[data-period]').forEach(button=>button.onclick=async()=>{try{await flush();state.period=button.dataset.period;await load()}catch(e){message(e.message,true)}});$('anchor').onchange=load;$('start').onchange=load;$('end').onchange=load;
@@ -173,7 +251,7 @@ function updateImportButton(){$('confirm-import').disabled=state.busy||!state.up
 const batchJobs=new WeakMap();
 async function uploadBatch(file,rows,onProgress){const selection=rows.map(u=>({date:u.date,sheet:u.sheet||u.result.sheet,overwrite:!!u.overwrite}));const signature=JSON.stringify(selection);let job=batchJobs.get(file);if(!job||job.signature!==signature){job={id:crypto.randomUUID(),signature};batchJobs.set(file,job)}const form=new FormData();form.append('file',file);form.append('selection',signature);form.append('jobId',job.id);const response=await apiFetch('import-batch',{method:'POST',headers:{'X-WL-Client-Version':'6'},body:form});if(!response.ok){const error=await response.json();throw Error(error.error||'批次匯入失敗')}if(response.headers.get('Content-Type')?.includes('application/json')){const result=await response.json();if(!result.ok)throw Error(result.error||'批次匯入失敗');return result}const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',complete=null;function consume(line){if(!line.trim())return;const event=JSON.parse(line);if(event.type==='progress')onProgress(event);if(event.type==='complete')complete=event}for(;;){const{value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let end;while((end=buffer.indexOf('\n'))>=0){consume(buffer.slice(0,end));buffer=buffer.slice(end+1)}}buffer+=decoder.decode();if(buffer.trim())consume(buffer);if(!complete)throw Error('連線中斷，部分日期可能已完成；請稍後重試同一批次');if(!complete.ok){batchJobs.delete(file);throw Error(complete.error||'批次匯入失敗')}return complete}
 $('confirm-import').onclick=async()=>{if(state.busy)return;const selected=state.uploads.filter(u=>u.selected&&!u.error);if(!selected.length)return;if(selected.some(u=>!u.date)){$('upload-error').textContent='請先指定日期';return}if(new Set(selected.map(u=>u.date)).size!==selected.length){$('upload-error').textContent='本批次有相同日期，請分批匯入';return}const groups=new Map();for(const u of selected){if(!groups.has(u.file))groups.set(u.file,[]);groups.get(u.file).push(u)}if([...groups.values()].some(rows=>rows.length>31)){$('upload-error').textContent='請一次選取最多 31 天，按月份分批匯入';return}state.busy=true;updateImportButton();$('upload-error').textContent='';const started=Date.now();let processed=0,imported=0,skipped=0;const errors=[];const progress=()=>{$('confirm-import').textContent='已處理 '+processed+'/'+selected.length;$('upload-skipped').textContent='批次匯入中 · '+Math.floor((Date.now()-started)/1000)+' 秒'};progress();const timer=setInterval(progress,1000);try{for(const[file,rows]of groups){const before=processed;try{const result=await uploadBatch(file,rows,event=>{processed=before+event.processed;progress()});processed=before+rows.length;for(const item of result.results){const u=rows.find(u=>u.date===item.date&&u.sheet===item.sheet);if(item.status==='imported'){if(u)u.done=true;imported++}else if(item.status==='skipped'){if(u)u.done=true;skipped++}else errors.push(item.date+'：'+item.error)}}catch(e){errors.push(file.name+'：'+e.message)}}}finally{clearInterval(timer);state.busy=false;$('confirm-import').textContent='確認匯入'}const completed=selected.filter(u=>u.done).sort((a,b)=>b.date.localeCompare(a.date))[0];if(completed){state.period='day';$('anchor').value=completed.date;await load()}const elapsed=((Date.now()-started)/1000).toFixed(1);if(errors.length){state.uploads=state.uploads.filter(u=>!u.done);renderUploads();$('upload-error').textContent=errors.join('；')}else{closeModal();if(completed)$('daily-details').focus()}message('已匯入 '+imported+' 天'+(skipped?'，已存在 '+skipped+' 天略過':'')+' · '+elapsed+' 秒'+(errors.length?'，其餘請重試':''),!!errors.length)};
-$('export-button').onclick=async()=>{const button=$('export-button');button.disabled=true;try{await flush();if(!await load())throw Error('同步失敗，請確認連線後再匯出');if(!state.records.length)throw Error('此日期區間沒有可匯出的資料');await loadExcel();const header=['日期','店號','產品','單位','當日報表期初','進貨','退貨','調入','調出','損耗','銷售','理論庫存','實際盤點','差異','原因','狀態','報表期初','期初來源','期初核對'];const rows=state.records.slice().sort((a,b)=>a.date.localeCompare(b.date)||PRODUCTS.findIndex(p=>p[0]===a.id)-PRODUCTS.findIndex(p=>p[0]===b.id)).map(r=>[r.date,'226',r.name,r.unit,...['opening','purchase','returns','transferIn','transferOut','loss','sales','theoretical','actual','difference'].map(k=>Number(r[k].toFixed(1))),r.difference?(r.reason.trim()||'原因待填'):'',!r.difference?'無差異':r.review?'原因待確認':r.reason.trim()?'已填寫':'原因待填',Number((r.reportOpening??r.opening).toFixed(1)),'本日報表期初','']);const ws=XLSX.utils.aoa_to_sheet([header,...rows]);ws['!cols']=header.map((_,i)=>({wch:i===14?40:i===2?18:14}));ws['!autofilter']={ref:ws['!ref']};for(const k of Object.keys(ws)){if(!k.startsWith('!')&&ws[k].t==='n')ws[k].z='0.0'}const notes=[['日期','來源檔案','缺少品項／注意事項','原始檔保存'],...state.reports.map(r=>[r.date,r.filename,(r.warnings||[]).join('；'),'網站雲端，OneDrive 待連接'])];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'每日差異');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(notes),'匯入紀錄');const[a,b]=range();XLSX.writeFile(wb,'226-WL-'+a+'-'+b+'.xlsx');message('Excel 已下載')}catch(e){message(e.message,true)}finally{button.disabled=false}};
+$('export-button').onclick=async()=>{const button=$('export-button');button.disabled=true;try{await flush();if(!await load())throw Error('同步失敗，請確認連線後再匯出');if(!state.records.length)throw Error('此日期區間沒有可匯出的資料');await loadExcel();const header=['日期','店號','產品','單位','當日報表期初','進貨','退貨','調入','調出','損耗','銷售','理論庫存','實際盤點','差異','原因','狀態','報表期初','期初來源','期初核對'];const rows=state.records.slice().sort((a,b)=>a.date.localeCompare(b.date)||PRODUCTS.findIndex(p=>p[0]===a.id)-PRODUCTS.findIndex(p=>p[0]===b.id)).map(r=>[r.date,'226',r.name,r.unit,...['opening','purchase','returns','transferIn','transferOut','loss','sales','theoretical','actual','difference'].map(k=>Number(r[k].toFixed(1))),r.difference?(r.reason.trim()||'原因待填'):'',!r.difference?'無差異':r.reason.trim()?'已填寫':'原因待填',Number((r.reportOpening??r.opening).toFixed(1)),'本日報表期初','']);const ws=XLSX.utils.aoa_to_sheet([header,...rows]);ws['!cols']=header.map((_,i)=>({wch:i===14?40:i===2?18:14}));ws['!autofilter']={ref:ws['!ref']};for(const k of Object.keys(ws)){if(!k.startsWith('!')&&ws[k].t==='n')ws[k].z='0.0'}const notes=[['日期','來源檔案','缺少品項／注意事項','原始檔保存'],...state.reports.map(r=>[r.date,r.filename,(r.warnings||[]).join('；'),'網站雲端，OneDrive 待連接'])];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'每日差異');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(notes),'匯入紀錄');const[a,b]=range();XLSX.writeFile(wb,'226-WL-'+a+'-'+b+'.xlsx');message('Excel 已下載')}catch(e){message(e.message,true)}finally{button.disabled=false}};
 window.addEventListener('beforeunload',e=>{if(state.dirty.size){e.preventDefault();e.returnValue=''}});document.addEventListener('keydown',e=>{const modal=!$('manager-modal').hidden?$('manager-modal'):!$('upload-modal').hidden?$('upload-modal'):null;if(!modal)return;if(e.key==='Escape'){if(modal.id==='manager-modal')$('close-manager').click();else closeModal()}if(e.key==='Tab'){const nodes=[...modal.querySelectorAll('button:not(:disabled),input:not(:disabled),a[href]')].filter(node=>node.getClientRects().length);const first=nodes[0],last=nodes.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}});
 $('select-month').onclick=()=>{const month=$('upload-month').value;if(!month)return;for(const u of state.uploads)u.selected=!u.error&&u.date.startsWith(month);renderUploads()};
 let materialQuery='',materialOffset=0,materialRange='',materialFingerprint='',materialBusy=false,materialReload=false;
