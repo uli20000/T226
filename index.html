@@ -39,6 +39,12 @@ input::placeholder,input::-webkit-date-and-time-value{text-align:center}.title-r
 
 .material-search-panel > summary {cursor:pointer;text-align:center;list-style-position:inside;}
 .material-search-panel[open] > summary {margin-bottom:16px;}
+
+.layout-overview,.layout-reasons{display:grid;gap:16px;}
+#product-daily-details:empty{display:none;}
+.report-actions{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
+.layout-reasons>.section-head{display:flex;justify-content:center;flex-wrap:wrap;gap:12px;}
+.layout-reasons>#sync-status{text-align:center;}
 </style></head><body>
 <section id="startup" class="auth" aria-live="polite" hidden><div class="auth-brand"><div class="logo">W+L</div><h1 id="startup-title">正在開啟網站</h1></div><p id="startup-message">若持續停留，請重新載入。</p><p id="startup-help" class="muted">請使用新版 Edge 或 Chrome。</p><a class="source-link" href="./">重新載入</a><noscript><p>瀏覽器未啟用網站程式。</p><p>請資訊人員檢查 JavaScript 設定。</p></noscript></section>
 
@@ -46,14 +52,21 @@ input::placeholder,input::-webkit-date-and-time-value{text-align:center}.title-r
 <div id="app" hidden><header><div class="shell"><div class="identity"><div class="wordmark">W+L</div><div class="store">每日數量差異<span>226 蘆洲長榮</span></div></div><div class="account"><span></span><button class="quiet" id="logout">登出</button></div></div></header>
 <main class="shell app-main">
 <section class="panel datebar" aria-label="日期控制"><div class="segments" role="group" aria-label="日期模式"><button data-period="day" aria-pressed="true">日</button><button data-period="week" aria-pressed="false">週</button><button data-period="month" aria-pressed="false">月</button><button data-period="custom" aria-pressed="false">自選</button></div><div class="date-nav" id="date-nav"><button id="previous" aria-label="上一期">‹</button><input type="date" id="anchor" aria-label="選擇日期"><button id="next" aria-label="下一期">›</button></div><div class="custom-range" id="custom-range" hidden><label>開始日期<input type="date" id="start"></label><label>結束日期<input type="date" id="end"></label></div><div class="date-caption" id="range-label" aria-live="polite"></div></section>
+<section class="layout-overview" aria-label="五品項">
 <div class="title-row"><h1 id="cumulative-title">日累計差異</h1><span class="pill" id="cumulative-count">全部已匯入資料</span></div><p class="date-caption" id="cumulative-range" aria-live="polite">正在計算累計差異</p><section class="overview" id="cumulative" aria-label="五品項目前累計差異"></section>
+<div id="product-daily-details" class="list" aria-live="polite"></div>
+</section>
 
-<div class="actions report-actions"><button id="read-drive-button" type="button">讀取資料</button><button id="manage-button">報表管理</button><button id="export-button">匯出檔案</button></div><input type="file" id="files" accept=".xlsx,.xls" multiple hidden>
-<div id="message" class="notice" role="status" aria-live="polite"></div><div class="notice"><span>原始檔已啟用雲端保存</span><span>OneDrive 待連接</span></div>
+<div class="panel actions report-actions" aria-label="報表操作"><button id="read-drive-button" type="button">讀取資料</button><button id="manage-button">報表管理</button><button id="export-button">匯出檔案</button></div><input type="file" id="files" accept=".xlsx,.xls" multiple hidden>
+<div id="message" class="notice" role="status" aria-live="polite"></div>
 <details class="panel material-search-panel"><summary><h2 id="material-title" style="display:inline">臨時品項查詢</h2></summary><p id="material-scope" class="muted"></p><div class="search-hint"><span>依上方日期範圍查詢</span><span>其他品項不列入每日追蹤</span></div><form id="material-form" class="material-form"><label>品名／貨號<input id="material-query" type="search" maxlength="100" placeholder="輸入關鍵字" required></label><button class="primary" id="material-search-button">查詢</button></form><div id="material-caption" class="material-caption" aria-live="polite"></div><div id="material-totals" class="material-totals"></div><details id="material-breakdown" hidden><summary>查看每日明細</summary><div id="material-list" class="material-list"></div><div class="material-pages" id="material-pages" hidden><button id="material-previous">上一頁</button><button id="material-next">下一頁</button></div></details></details>
-<div class="section-head"><h2 id="daily-details" tabindex="-1">每日明細</h2><span class="pill" id="pending-count">載入中</span></div><small id="sync-status">登入後同步資料</small><div class="header-labels"><span>產品</span><span>＋／−</span><span>差異原因</span></div><section id="records" class="list" aria-label="每日差異與原因"></section>
+<section class="panel layout-reasons" aria-labelledby="daily-details">
+<div class="section-head"><h2 id="daily-details" tabindex="-1">差異原因</h2><span class="pill" id="pending-count">載入中</span></div>
+<small id="sync-status">登入後同步資料</small>
+<div id="records" class="list" aria-label="待填差異原因"></div>
+</section>
 <footer>W+L · 226 店</footer>
 </main></div>
 <div class="modal-backdrop" id="upload-modal" hidden><section class="modal" role="dialog" aria-modal="true" aria-labelledby="upload-title"><div class="modal-head"><h2 id="upload-title">確認匯入報表</h2><button id="close-modal" aria-label="關閉">✕</button></div><div class="upload-toolbar" id="upload-date-options"><label>只選指定月份<input type="month" id="upload-month"></label><button id="select-month">選取這個月</button></div><p class="muted" id="upload-skipped"></p><div id="upload-list" class="list"></div><p id="upload-error" class="error-text" role="alert"></p><div class="modal-actions"><button id="cancel-import">取消</button><button class="primary" id="confirm-import">確認匯入</button></div></section></div>
 <div class="modal-backdrop" id="manager-modal" hidden><section class="modal" role="dialog" aria-modal="true" aria-labelledby="manager-title"><div class="modal-head"><h2 id="manager-title">報表管理</h2><button id="close-manager" aria-label="關閉報表管理">✕</button></div><div class="actions"><button id="show-active" class="primary">現有報表</button><button id="show-trash">回收區</button></div><button id="upload-button">手動上傳報表</button><div class="notice"><span>刪除先移至回收區，可還原。</span><span>永久刪除需再次輸入確認文字。</span><span>回收區保留至手動永久刪除。</span><span>共用月檔仍有日期使用時保留。</span></div><div id="manager-list" class="list"></div><p id="manager-error" class="error-text" role="alert"></p></section></div>
-<script src="./assets/boot.js?v=20261103-fast1" defer></script><script src="./assets/app.js?v=20261110-product-click" defer></script></body></html>
+<script src="./assets/boot.js?v=20261103-fast1" defer></script><script src="./assets/app.js?v=20261110-layout" defer></script></body></html>
