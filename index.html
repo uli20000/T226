@@ -36,6 +36,9 @@ input::placeholder,input::-webkit-date-and-time-value{text-align:center}.title-r
  .detail-cell span,.detail-cell strong{white-space:nowrap}
  .record-difference{font-size:22px}.material-form{grid-template-columns:minmax(0,1fr) 80px;gap:8px}
 }
+
+.material-search-panel > summary {cursor:pointer;text-align:center;list-style-position:inside;}
+.material-search-panel[open] > summary {margin-bottom:16px;}
 </style></head><body>
 <section id="startup" class="auth" aria-live="polite" hidden><div class="auth-brand"><div class="logo">W+L</div><h1 id="startup-title">正在開啟網站</h1></div><p id="startup-message">若持續停留，請重新載入。</p><p id="startup-help" class="muted">請使用新版 Edge 或 Chrome。</p><a class="source-link" href="./">重新載入</a><noscript><p>瀏覽器未啟用網站程式。</p><p>請資訊人員檢查 JavaScript 設定。</p></noscript></section>
 
@@ -47,7 +50,7 @@ input::placeholder,input::-webkit-date-and-time-value{text-align:center}.title-r
 
 <div class="actions report-actions"><button id="read-drive-button" type="button">讀取資料</button><button id="manage-button">報表管理</button><button id="export-button">匯出檔案</button></div><input type="file" id="files" accept=".xlsx,.xls" multiple hidden>
 <div id="message" class="notice" role="status" aria-live="polite"></div><div class="notice"><span>原始檔已啟用雲端保存</span><span>OneDrive 待連接</span></div>
-<section class="panel" aria-labelledby="material-title"><h2 id="material-title">臨時品項查詢</h2><p id="material-scope" class="muted"></p><div class="search-hint"><span>依上方日期範圍查詢</span><span>其他品項不列入每日追蹤</span></div><form id="material-form" class="material-form"><label>品名／貨號<input id="material-query" type="search" maxlength="100" placeholder="輸入關鍵字" required></label><button class="primary" id="material-search-button">查詢</button></form><div id="material-caption" class="material-caption" aria-live="polite"></div><div id="material-totals" class="material-totals"></div><details id="material-breakdown" hidden><summary>查看每日明細</summary><div id="material-list" class="material-list"></div><div class="material-pages" id="material-pages" hidden><button id="material-previous">上一頁</button><button id="material-next">下一頁</button></div></details></section>
+<details class="panel material-search-panel"><summary><h2 id="material-title" style="display:inline">臨時品項查詢</h2></summary><p id="material-scope" class="muted"></p><div class="search-hint"><span>依上方日期範圍查詢</span><span>其他品項不列入每日追蹤</span></div><form id="material-form" class="material-form"><label>品名／貨號<input id="material-query" type="search" maxlength="100" placeholder="輸入關鍵字" required></label><button class="primary" id="material-search-button">查詢</button></form><div id="material-caption" class="material-caption" aria-live="polite"></div><div id="material-totals" class="material-totals"></div><details id="material-breakdown" hidden><summary>查看每日明細</summary><div id="material-list" class="material-list"></div><div class="material-pages" id="material-pages" hidden><button id="material-previous">上一頁</button><button id="material-next">下一頁</button></div></details></details>
 <div class="section-head"><h2 id="daily-details" tabindex="-1">每日明細</h2><span class="pill" id="pending-count">載入中</span></div><small id="sync-status">登入後同步資料</small><div class="header-labels"><span>產品</span><span>＋／−</span><span>差異原因</span></div><section id="records" class="list" aria-label="每日差異與原因"></section>
 <footer>W+L · 226 店</footer>
 </main></div>
