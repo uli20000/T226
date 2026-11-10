@@ -24,9 +24,45 @@ function updateRange(){const[a,b]=range();const label={day:'日',week:'週',mont
 function badge(){if(!state.records.length){$('pending-count').textContent='尚無資料';return}const n=state.records.filter(x=>x.difference!==0&&(!x.reason.trim()||x.review)).length;$('pending-count').textContent=n?'待填／待確認 '+n+' 筆':'原因已齊全'}
 function render(){if(materialQuery&&(materialRange!==range().join()||materialFingerprint!==state.reports.map(r=>r.date+':'+r.uploadedAt).sort().join())){clearMaterialResults(false);if(materialBusy)materialReload=true;else searchMaterials(0)}renderSummary();badge();
  const list=$('records');const expanded=new Set([...list.querySelectorAll('article[data-key]')].filter(x=>x.querySelector('details')?.open).map(x=>x.dataset.key));list.replaceChildren();if(!state.records.length){list.innerHTML='<div class="panel empty"><h2>此區間尚無報表</h2><p>上傳每日 Excel，即可查看差異。</p><button id="empty-upload">上傳第一份報表</button></div>';$('empty-upload').onclick=()=>$('files').click();return}
- const dates=[...new Set(state.records.map(r=>r.date))].sort().reverse();for(const date of dates){const heading=document.createElement('div');heading.className='section-head';const h=document.createElement('div');h.className='day-heading';h.textContent=date.replaceAll('-','/');heading.append(h);const a=document.createElement('a');a.href='#';a.onclick=event=>{event.preventDefault();downloadOriginal(date)};a.textContent='下載原檔';a.className='source-link';heading.append(a);list.append(heading);const report=state.reports.find(r=>r.date===date);if(report?.warnings?.length){const n=document.createElement('div');n.className='notice error-box';report.warnings.forEach(w=>{const s=document.createElement('span');s.textContent=w;n.append(s)});list.append(n)}
- for(const[id]of PRODUCTS){const r=state.records.find(x=>x.date===date&&x.id===id);if(!r)continue;const k=date+'/'+id;const article=document.createElement('article');article.className='record';article.dataset.key=k;article.innerHTML='<div class="record-title"><h3>'+esc(r.name)+'</h3><small>'+esc(r.unit||'數量')+'</small></div><div class="record-difference '+(r.difference<0?'negative':'positive')+'">'+signed(r.difference)+'</div><label class="reason">差異原因<input type="text" maxlength="2000" placeholder="'+(r.difference?'輸入差異原因':'差異為 0，免填原因')+'" aria-label="'+esc(date+' '+r.name+'差異原因')+'" '+(!r.difference?'disabled':'')+'><span class="save-status" aria-live="polite"></span></label><details><summary>查看數量明細</summary><div class="carry-note"><span>'+'採用當日上傳報表期初；差異＝理論庫存－期末盤點'+'</span>'+''+'</div><div class="detail-grid">'+[['報表期初',r.reportOpening??r.opening],['進貨',r.purchase],['退貨',r.returns],['調入',r.transferIn],['調出',r.transferOut],['損耗',r.loss],['銷售',r.sales],['理論庫存',r.theoretical],['實際盤點',r.actual]].map(([label,v])=>'<div class="detail-cell"><span>'+label+'</span><strong>'+fmt(v)+'</strong></div>').join('')+'</div></details>';
- article.querySelector('details').open=expanded.has(k);const input=article.querySelector('input'),status=article.querySelector('.save-status');input.value=r.reason;status.textContent=!r.difference?'免填原因':r.review?'原因待確認':r.reason.trim()?'已儲存':'原因待填';if(r.review){const b=document.createElement('button');b.type='button';b.textContent='確認原原因';b.onclick=()=>{queueSave(k,r,input,status);b.remove()};article.querySelector('.reason').append(b)}input.oninput=()=>{r.reason=input.value;state.dirty.add(k);status.textContent='等待儲存…';status.classList.remove('error');clearTimeout(state.timers.get(k));state.timers.set(k,setTimeout(()=>queueSave(k,r,input,status),600));badge()};list.append(article)}}}
+ const dates=[...new Set(state.records.map(row=>row.date))].sort().reverse();
+ const byProduct=state.period==='week'||state.period==='month';
+ const groups=byProduct
+   ? PRODUCTS.map(([id,name])=>({label:name,dates,ids:[id]}))
+   : dates.map(date=>({label:date.replaceAll('-','/'),dates:[date],ids:PRODUCTS.map(([id])=>id)}));
+ for(const group of groups){
+   const section=document.createElement('section');section.className='list';
+   section.setAttribute('aria-label',group.label+(byProduct?'逐日差異':'每日差異'));
+   const heading=document.createElement('div');heading.className='section-head';
+   if(byProduct)heading.style.gridTemplateColumns='1fr';
+   const title=document.createElement(byProduct?'h2':'div');title.className='day-heading';title.textContent=group.label;
+   if(byProduct){title.style.fontSize='18px';title.style.textAlign='center'}
+   heading.append(title);section.append(heading);list.append(section);
+   if(!byProduct)heading.append(originalLink(group.dates[0]));
+   for(const date of group.dates){
+     const rows=group.ids.map(id=>state.records.find(row=>row.date===date&&row.id===id)).filter(Boolean);
+     if(!rows.length)continue;
+     const report=state.reports.find(report=>report.date===date);
+     if(report?.warnings?.length){
+       const notice=document.createElement('div');notice.className='notice error-box';
+       report.warnings.forEach(warning=>{const text=document.createElement('span');text.textContent=(byProduct?date+' · ':'')+warning;notice.append(text)});
+       section.append(notice);
+     }
+     for(const row of rows)appendDailyRecord(row,date,expanded,section,byProduct);
+   }
+ }
+}
+function originalLink(date){
+ const link=document.createElement('a');link.href='#';link.className='source-link';link.textContent='下載原檔';
+ link.onclick=event=>{event.preventDefault();downloadOriginal(date)};
+ return link;
+}
+function appendDailyRecord(r,date,expanded,container,byProduct){
+ const id=r.id;
+const k=date+'/'+id;const article=document.createElement('article');article.className='record';article.dataset.key=k;article.innerHTML='<div class="record-title"><h3>'+esc(byProduct?date.replaceAll('-','/'):r.name)+'</h3><small>'+esc(r.unit||'數量')+'</small></div><div class="record-difference '+(r.difference<0?'negative':'positive')+'">'+signed(r.difference)+'</div><label class="reason">差異原因<input type="text" maxlength="2000" placeholder="'+(r.difference?'輸入差異原因':'差異為 0，免填原因')+'" aria-label="'+esc(date+' '+r.name+'差異原因')+'" '+(!r.difference?'disabled':'')+'><span class="save-status" aria-live="polite"></span></label><details><summary>查看數量明細</summary><div class="carry-note"><span>'+'採用當日上傳報表期初；差異＝理論庫存－期末盤點'+'</span>'+''+'</div><div class="detail-grid">'+[['報表期初',r.reportOpening??r.opening],['進貨',r.purchase],['退貨',r.returns],['調入',r.transferIn],['調出',r.transferOut],['損耗',r.loss],['銷售',r.sales],['理論庫存',r.theoretical],['實際盤點',r.actual]].map(([label,v])=>'<div class="detail-cell"><span>'+label+'</span><strong>'+fmt(v)+'</strong></div>').join('')+'</div></details>';
+ article.querySelector('details').open=expanded.has(k);const input=article.querySelector('input'),status=article.querySelector('.save-status');input.value=r.reason;status.textContent=!r.difference?'免填原因':r.review?'原因待確認':r.reason.trim()?'已儲存':'原因待填';if(r.review){const b=document.createElement('button');b.type='button';b.textContent='確認原原因';b.onclick=()=>{queueSave(k,r,input,status);b.remove()};article.querySelector('.reason').append(b)}input.oninput=()=>{r.reason=input.value;state.dirty.add(k);status.textContent='等待儲存…';status.classList.remove('error');clearTimeout(state.timers.get(k));state.timers.set(k,setTimeout(()=>queueSave(k,r,input,status),600));badge()};
+ if(byProduct)article.querySelector('.record-title').append(originalLink(date));
+ container.append(article);
+}
 function queueSave(k,r,input,status){clearTimeout(state.timers.get(k));state.timers.delete(k);state.dirty.add(k);const value=input.value;status.textContent='儲存中…';const job=(state.queues.get(k)||Promise.resolve()).catch(()=>{}).then(async()=>{try{await post('reason',{date:r.date,id:r.id,reason:value,difference:r.difference});r.review=false;if(input.value===value){state.dirty.delete(k);status.textContent=value.trim()?'已儲存':'原因待填';status.classList.remove('error')}badge()}catch(e){status.textContent='儲存失敗，點此重試';status.classList.add('error');status.onclick=()=>queueSave(k,r,input,status);message(e.message,true);throw e}});state.queues.set(k,job);job.catch(()=>{});return job}
 async function flush(){for(const[k]of state.timers){const[date,id]=k.split('/');const r=state.records.find(x=>x.date===date&&x.id===id);const inputs=[...$('records').querySelectorAll('input')];const input=inputs.find(x=>x.getAttribute('aria-label')===date+' '+r.name+'差異原因');if(input)queueSave(k,r,input,input.parentElement.querySelector('.save-status'))}await Promise.all([...state.queues.values()]);if(state.dirty.size)throw Error('仍有原因未儲存，請重試後繼續')}
 function renderSummary(){const summary=state.summary;if(!summary)return;$('cumulative-count').textContent='本期間 · '+summary.days+' 日資料';$('cumulative-range').textContent=summary.days?range().map(d=>d.replaceAll('-','/')).join(' – '):'本期間尚無報表';$('cumulative').innerHTML=summary.items.map(r=>'<div class="product"><div class="product-name">'+esc(r.name)+'</div><div class="product-number '+(r.difference<0?'negative':'positive')+'">'+(r.days?signed(r.difference):'—')+'</div><small>'+(r.days?'累計 '+r.days+' 日':'尚無資料')+'</small></div>').join('')}
