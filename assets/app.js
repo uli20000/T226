@@ -144,7 +144,36 @@ function savedReason(row) {
   const text = reasonDisplay(row);
   reason.append(label, text);
   article.append(reason);
+  attachDayDetails(article, row);
   return article;
+}
+function attachDayDetails(article, row) {
+  if (state.period !== 'day') return;
+  const details = document.createElement('details');
+  details.style.gridColumn = '1 / -1';
+  details.style.width = '100%';
+  const summary = document.createElement('summary');
+  summary.textContent = '查看當日明細';
+  summary.style.textAlign = 'center';
+  summary.style.cursor = 'pointer';
+  const grid = document.createElement('div');
+  grid.style.display = 'grid';
+  grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(100px, 1fr))';
+  grid.style.gap = '12px';
+  grid.style.padding = '16px 0';
+  grid.style.textAlign = 'center';
+  for (const [label, key] of [['期初', 'opening'], ['損耗', 'loss'], ['銷售', 'sales'], ['理論', 'theoretical'], ['期末', 'actual'], ['差異', 'difference']]) {
+    const item = document.createElement('div');
+    const value = row[key];
+    item.textContent = label + '　' + (typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('zh-TW', {maximumFractionDigits: 1}) : '—');
+    grid.append(item);
+  }
+  details.append(summary, grid);
+  article.append(details);
+  article.onclick = event => {
+    if (event.target.closest('button, input, label, summary, details')) return;
+    details.open = !details.open;
+  };
 }
 function reasonDisplay(row, compact = false) {
   const editable = !!row.reason.trim();
@@ -187,6 +216,7 @@ function appendPendingReason(row, container, compact = false) {
     state.timers.set(key, setTimeout(() => queueSave(key, row, input, status), 600));
     badge();
   };
+  attachDayDetails(article, row);
   container.append(article);
 }
 function queueSave(k,r,input,status){clearTimeout(state.timers.get(k));state.timers.delete(k);state.dirty.add(k);const value=input.value;status.textContent='儲存中…';const job=(state.queues.get(k)||Promise.resolve()).catch(()=>{}).then(async()=>{try{await post('reason',{date:r.date,id:r.id,reason:value,difference:r.difference});r.review=false;if(input.value===value){state.dirty.delete(k);status.textContent=value.trim()?'已儲存':'原因待填';status.classList.remove('error');if(value.trim()){if(state.period==='day')input.closest('article')?.replaceWith(savedReason(r));else if((state.period==='week'||state.period==='month')&&activeProduct===r.id&&activeDate===r.date)render();else input.closest('article')?.remove()}}badge()}catch(e){status.textContent='儲存失敗，點此重試';status.classList.add('error');status.onclick=()=>queueSave(k,r,input,status);message(e.message,true);throw e}});state.queues.set(k,job);job.catch(()=>{});return job}
@@ -337,6 +367,27 @@ let materialQuery='',materialOffset=0,materialRange='',materialFingerprint='',ma
 function clearMaterialResults(reset=true){if(reset)materialQuery='';materialOffset=0;$('material-list').replaceChildren();$('material-breakdown').hidden=true;$('material-totals').replaceChildren();$('material-pages').hidden=true;$('material-caption').textContent='正在依日期更新查詢…'}
 async function searchMaterials(offset=0){if(materialBusy)return;const query=$('material-query').value.trim();if(!query)return;const[start,end]=range();const requestedRange=[start,end].join();materialBusy=true;$('material-search-button').disabled=true;$('material-previous').disabled=true;$('material-next').disabled=true;$('material-caption').textContent='正在查詢原始報表…';try{const p=new URLSearchParams({q:query,start,end,offset:String(offset)});const result=await api('material-search?'+p);if(range().join()!==requestedRange){clearMaterialResults(false);materialReload=true;return}materialQuery=query;materialOffset=offset;materialRange=requestedRange;materialFingerprint=state.reports.map(r=>r.date+':'+r.uploadedAt).sort().join();$('material-breakdown').hidden=!result.results.length;const totals=$('material-totals');totals.replaceChildren();for(const r of result.totals||[]){const card=document.createElement('div');card.className='product';const name=document.createElement('div');name.className='product-name';name.textContent=r.name;name.title=r.name;const number=document.createElement('div');number.className='product-number '+(r.difference<0?'negative':'positive');number.textContent=signed(r.difference);const label=document.createElement('small');label.textContent=({day:'日',week:'週',month:'月',custom:'區間'}[state.period])+'差異 · '+r.days+' 日資料';card.append(name,number,label);totals.append(card)}const list=$('material-list');list.replaceChildren();for(const r of result.results){const card=document.createElement('article');card.className='material-card';const head=document.createElement('div');head.className='material-heading';const title=document.createElement('h3');title.textContent=r.name;title.title=r.name;const delta=document.createElement('div');delta.className='product-number '+(r.difference<0?'negative':'positive');delta.textContent=r.error?'—':signed(r.difference);head.append(title,delta);const sub=document.createElement('div');sub.className='material-sub';for(const text of [r.date,r.code,r.unit||'數量']){const span=document.createElement('span');span.textContent=text;sub.append(span)}card.append(head,sub);if(r.error){const error=document.createElement('p');error.className='error-text';error.textContent='數字格式異常，請查看原檔';card.append(error)}else{const detail=document.createElement('details');const summary=document.createElement('summary');summary.textContent='查看數量明細';detail.append(summary);const grid=document.createElement('div');grid.className='detail-grid';for(const[label,value]of [['報表期初',r.reportOpening??r.opening],['進貨',r.purchase],['退貨',r.returns],['調入',r.transferIn],['調出',r.transferOut],['損耗',r.loss],['銷售',r.sales],['理論庫存',r.theoretical],['實際盤點',r.actual]]){const cell=document.createElement('div');cell.className='detail-cell';const name=document.createElement('span');name.textContent=label;const number=document.createElement('strong');number.textContent=fmt(value);cell.append(name,number);grid.append(cell)}const note=document.createElement('div');note.className='carry-note';const source=document.createElement('span');source.textContent=r.openingSource==='previous'?'採用前一天實際盤點':'前日無資料，採報表期初';note.append(source);if(r.openingMismatch){const warning=document.createElement('span');warning.className='danger';warning.textContent='前日盤點與報表期初不同';note.append(warning)}detail.append(grid,note);card.append(detail)}list.append(card)}const caption=$('material-caption');caption.replaceChildren();const rangeLabel=document.createElement('span');rangeLabel.textContent=start+' – '+end;const count=document.createElement('span');count.textContent=result.total?' · '+(offset+1)+'–'+Math.min(offset+100,result.total)+'／'+result.total+' 筆':' · 查無符合品項';caption.append(rangeLabel,count);for(const w of result.warnings){const p=document.createElement('div');p.className='error-text';p.textContent=w.date+'：'+w.message;caption.append(p)}$('material-pages').hidden=result.total<=100;$('material-previous').disabled=offset===0;$('material-next').disabled=offset+100>=result.total}catch(e){$('material-caption').textContent=e.message;$('material-list').replaceChildren();$('material-breakdown').hidden=true;$('material-totals').replaceChildren();$('material-pages').hidden=true}finally{materialBusy=false;$('material-search-button').disabled=false;if(materialReload){materialReload=false;searchMaterials(0)}}}
 $('material-form').onsubmit=e=>{e.preventDefault();searchMaterials(0)};$('material-previous').onclick=()=>searchMaterials(Math.max(0,materialOffset-100));$('material-next').onclick=()=>searchMaterials(materialOffset+100);
+async function downloadOriginal(date) {
+  try {
+    const response = await apiFetch('original?date=' + encodeURIComponent(date));
+    if (!response.ok) {
+      const error = await response.json();
+      throw Error(error.error || '下載失敗');
+    }
+    const blob = await response.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    const filename = response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1];
+    link.download = filename || ('226-' + date + '.xlsx');
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 30000);
+  } catch (error) {
+    $('manager-error').textContent = error.message;
+    message(error.message, true);
+  }
+}
 let managerMode='active',managerBusy=false;
 function closeManager(){if(managerBusy)return;$('manager-modal').hidden=true;$('manage-button').focus()}
 $('close-manager').onclick=closeManager;
