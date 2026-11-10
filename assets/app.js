@@ -113,10 +113,7 @@ function render() {
       $('daily-details').textContent = selected.name + ' · ' + selected.date.replaceAll('-', '/') + ' 差異原因';
       if (needsReason(selected)) appendPendingReason(selected, list, true);
       else {
-        const reason = document.createElement('p');
-        reason.className = 'notice';
-        reason.textContent = selected.difference === 0 ? '當日無差異，免填原因' : selected.reason;
-        list.append(reason);
+        list.append(reasonDisplay(selected, true));
       }
     }
     return;
@@ -144,13 +141,32 @@ function savedReason(row) {
   reason.className = 'reason';
   const label = document.createElement('span');
   label.textContent = '差異原因';
-  const text = document.createElement('p');
-  text.className = 'notice';
-  text.style.margin = '0';
-  text.textContent = row.difference === 0 ? '當日無差異，免填原因' : row.reason;
+  const text = reasonDisplay(row);
   reason.append(label, text);
   article.append(reason);
   return article;
+}
+function reasonDisplay(row, compact = false) {
+  const editable = !!row.reason.trim();
+  const text = document.createElement(editable ? 'button' : 'p');
+  text.className = 'notice';
+  text.style.margin = '0';
+  text.textContent = editable ? row.reason : '當日無差異，免填原因';
+  if (editable) {
+    text.type = 'button';
+    text.style.width = '100%';
+    text.style.cursor = 'pointer';
+    text.setAttribute('aria-label', row.date + ' ' + row.name + '原因，點擊修改');
+    text.title = '點擊修改原因';
+    text.onclick = () => {
+      const holder = document.createElement('div');
+      appendPendingReason(row, holder, compact);
+      const editor = holder.children[0];
+      (compact ? text : text.closest('article')).replaceWith(editor);
+      editor.querySelector('input').focus();
+    };
+  }
+  return text;
 }
 function appendPendingReason(row, container, compact = false) {
   const key = row.date + '/' + row.id;
@@ -161,6 +177,7 @@ function appendPendingReason(row, container, compact = false) {
   const input = article.querySelector('input');
   const status = article.querySelector('.save-status');
   input.value = row.reason;
+  status.textContent = row.reason.trim() ? '已儲存，修改後自動儲存' : '原因待填';
   input.oninput = () => {
     row.reason = input.value;
     state.dirty.add(key);
