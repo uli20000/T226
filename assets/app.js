@@ -44,6 +44,7 @@ function render() {
   badge();
   const list = $('records');
   list.replaceChildren();
+  $('product-daily-details').replaceChildren();
   const labels = document.querySelector('.header-labels');
   if (labels) labels.hidden = true;
   if (!state.records.length) {
@@ -80,14 +81,10 @@ function render() {
       notice.textContent = '此品項在本期間尚無資料';
       section.append(notice);
     }
-    list.append(section);
+    $('product-daily-details').append(section);
   }
   const pending = state.records.filter(needsReason).sort((a, b) => b.date.localeCompare(a.date) || PRODUCTS.findIndex(([id]) => id === a.id) - PRODUCTS.findIndex(([id]) => id === b.id));
   if (pending.length) {
-    const heading = document.createElement('h2');
-    heading.textContent = '待填差異原因';
-    heading.style.textAlign = 'center';
-    list.append(heading);
     for (const row of pending) appendPendingReason(row, list);
   }
 }
