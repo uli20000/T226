@@ -185,25 +185,24 @@ function attachDayDetails(article, row, expanded = false) {
   };
 }
 function reasonDisplay(row, compact = false) {
-  const editable = !!row.reason.trim();
-  const text = document.createElement(editable ? 'button' : 'p');
+  const hasReason = !!row.reason.trim();
+  const text = document.createElement('button');
   text.className = 'notice';
   text.style.margin = '0';
-  text.textContent = editable ? row.reason : row.difference === 0 ? '當日無差異，免填原因' : '差異未達必填門檻，免填原因';
-  if (editable) {
-    text.type = 'button';
-    text.style.width = '100%';
-    text.style.cursor = 'pointer';
-    text.setAttribute('aria-label', row.date + ' ' + row.name + '原因，點擊修改');
-    text.title = '點擊修改原因';
-    text.onclick = () => {
-      const holder = document.createElement('div');
-      appendPendingReason(row, holder, compact);
-      const editor = holder.children[0];
-      (compact ? text : text.closest('article')).replaceWith(editor);
-      editor.querySelector('input').focus();
-    };
-  }
+  text.textContent = hasReason ? row.reason : row.difference === 0 ? '當日無差異，可點擊填寫原因' : '未達必填門檻，可點擊填寫原因';
+  text.type = 'button';
+  text.style.width = '100%';
+  text.style.cursor = 'pointer';
+  const action = hasReason ? '點擊修改' : '點擊填寫';
+  text.setAttribute('aria-label', row.date + ' ' + row.name + '原因，' + action);
+  text.title = action + '原因';
+  text.onclick = () => {
+    const holder = document.createElement('div');
+    appendPendingReason(row, holder, compact);
+    const editor = holder.children[0];
+    (compact ? text : text.closest('article')).replaceWith(editor);
+    editor.querySelector('input').focus();
+  };
   return text;
 }
 function appendPendingReason(row, container, compact = false) {
@@ -215,7 +214,7 @@ function appendPendingReason(row, container, compact = false) {
   const input = article.querySelector('input');
   const status = article.querySelector('.save-status');
   input.value = row.reason;
-  status.textContent = row.reason.trim() ? '已儲存，修改後自動儲存' : '原因待填';
+  status.textContent = row.reason.trim() ? '已儲存，修改後自動儲存' : requiresReason(row) ? '原因待填' : '選填，修改後自動儲存';
   input.oninput = () => {
     row.reason = input.value;
     state.dirty.add(key);
