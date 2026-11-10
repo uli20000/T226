@@ -54,7 +54,7 @@ input::placeholder,input::-webkit-date-and-time-value{text-align:center}.title-r
 <main class="shell app-main">
 <section class="panel datebar" aria-label="日期控制"><div class="segments" role="group" aria-label="日期模式"><button data-period="day" aria-pressed="true">日</button><button data-period="week" aria-pressed="false">週</button><button data-period="month" aria-pressed="false">月</button><button data-period="custom" aria-pressed="false">自選</button></div><div class="date-nav" id="date-nav"><button id="previous" aria-label="上一期">‹</button><input type="date" id="anchor" aria-label="選擇日期"><button id="next" aria-label="下一期">›</button></div><div class="custom-range" id="custom-range" hidden><label>開始日期<input type="date" id="start"></label><label>結束日期<input type="date" id="end"></label></div><div class="date-caption" id="range-label" aria-live="polite"></div></section>
 <section class="layout-overview" aria-label="五品項">
-<div class="title-row"><h1 id="cumulative-title">日累計差異</h1><span class="pill" id="cumulative-count">全部已匯入資料</span></div><p class="date-caption" id="cumulative-range" aria-live="polite">正在計算累計差異</p><section class="overview" id="cumulative" aria-label="五品項目前累計差異"></section>
+<div hidden aria-hidden="true"><h1 id="cumulative-title"></h1><span id="cumulative-count"></span><p id="cumulative-range"></p></div><section class="overview" id="cumulative" aria-label="五品項目前累計差異"></section>
 <div id="product-daily-details" class="list" aria-live="polite"></div>
 </section>
 
