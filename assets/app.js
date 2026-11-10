@@ -22,17 +22,22 @@ function range(){if(state.period==='custom')return[$('start').value,$('end').val
 function updateRange(){const[a,b]=range();const label={day:'日',week:'週',month:'月',custom:'區間'}[state.period];$('cumulative-title').textContent=label+'累計差異';$('material-scope').textContent=label+'查詢：'+(a===b?a:a+' – '+b);$('range-label').textContent=a===b?a.replaceAll('-','/'):a.replaceAll('-','/')+' – '+b.replaceAll('-','/');$('custom-range').hidden=state.period!=='custom';$('date-nav').hidden=state.period==='custom';document.querySelectorAll('[data-period]').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.period===state.period)))}
 let activeProduct = null;
 let activeProductRange = '';
+let activeDate = null;
 function needsReason(row) {
   return row.difference !== 0 && !row.reason.trim();
 }
 function badge() {
-  const count = state.records.filter(needsReason).length;
+  const rows = (state.period === 'week' || state.period === 'month')
+    ? state.records.filter(row => row.id === activeProduct && row.date === activeDate)
+    : state.records;
+  const count = rows.filter(needsReason).length;
   $('pending-count').textContent = !state.records.length ? '尚無資料' : count ? '待填原因 ' + count + ' 筆' : '原因已齊全';
 }
 function render() {
   const scope = state.period + ':' + range().join();
   if (activeProductRange !== scope) {
     activeProduct = null;
+    activeDate = null;
     activeProductRange = scope;
   }
   if (materialQuery && (materialRange !== range().join() || materialFingerprint !== state.reports.map(row => row.date + ':' + row.uploadedAt).sort().join())) {
@@ -42,6 +47,10 @@ function render() {
   }
   renderSummary();
   badge();
+  const periodDrilldown = state.period === 'week' || state.period === 'month';
+  const reasonPanel = document.querySelector('.layout-reasons');
+  if (reasonPanel) reasonPanel.hidden = periodDrilldown && (!activeProduct || !activeDate);
+  $('daily-details').textContent = '差異原因';
   const list = $('records');
   list.replaceChildren();
   $('product-daily-details').replaceChildren();
@@ -64,8 +73,20 @@ function render() {
     section.append(heading);
     const rows = state.records.filter(row => row.id === activeProduct).sort((a, b) => b.date.localeCompare(a.date));
     for (const row of rows) {
-      const line = document.createElement('div');
+      const line = document.createElement('button');
+      line.type = 'button';
       line.className = 'detail-cell';
+      line.dataset.date = row.date;
+      line.setAttribute('aria-expanded', String(activeDate === row.date));
+      line.setAttribute('aria-controls', 'records');
+      line.style.outline = activeDate === row.date ? '2px solid #245b49' : '';
+      line.onclick = async () => {
+        try {
+          await flush();
+          activeDate = activeDate === row.date ? null : row.date;
+          render();
+        } catch (error) {message(error.message, true);}
+      };
       line.style.display = 'grid';
       line.style.gridTemplateColumns = '1fr 1fr';
       const date = document.createElement('span');
@@ -82,6 +103,20 @@ function render() {
       section.append(notice);
     }
     $('product-daily-details').append(section);
+  }
+  if (periodDrilldown) {
+    const selected = state.records.find(row => row.id === activeProduct && row.date === activeDate);
+    if (selected) {
+      $('daily-details').textContent = selected.name + ' · ' + selected.date.replaceAll('-', '/') + ' 差異原因';
+      if (needsReason(selected)) appendPendingReason(selected, list);
+      else {
+        const reason = document.createElement('p');
+        reason.className = 'notice';
+        reason.textContent = selected.difference === 0 ? '當日無差異，免填原因' : selected.reason;
+        list.append(reason);
+      }
+    }
+    return;
   }
   const pending = state.records.filter(needsReason).sort((a, b) => b.date.localeCompare(a.date) || PRODUCTS.findIndex(([id]) => id === a.id) - PRODUCTS.findIndex(([id]) => id === b.id));
   if (pending.length) {
@@ -108,7 +143,7 @@ function appendPendingReason(row, container) {
   };
   container.append(article);
 }
-function queueSave(k,r,input,status){clearTimeout(state.timers.get(k));state.timers.delete(k);state.dirty.add(k);const value=input.value;status.textContent='儲存中…';const job=(state.queues.get(k)||Promise.resolve()).catch(()=>{}).then(async()=>{try{await post('reason',{date:r.date,id:r.id,reason:value,difference:r.difference});r.review=false;if(input.value===value){state.dirty.delete(k);status.textContent=value.trim()?'已儲存':'原因待填';status.classList.remove('error');if(value.trim())input.closest('article')?.remove()}badge()}catch(e){status.textContent='儲存失敗，點此重試';status.classList.add('error');status.onclick=()=>queueSave(k,r,input,status);message(e.message,true);throw e}});state.queues.set(k,job);job.catch(()=>{});return job}
+function queueSave(k,r,input,status){clearTimeout(state.timers.get(k));state.timers.delete(k);state.dirty.add(k);const value=input.value;status.textContent='儲存中…';const job=(state.queues.get(k)||Promise.resolve()).catch(()=>{}).then(async()=>{try{await post('reason',{date:r.date,id:r.id,reason:value,difference:r.difference});r.review=false;if(input.value===value){state.dirty.delete(k);status.textContent=value.trim()?'已儲存':'原因待填';status.classList.remove('error');if(value.trim()){if((state.period==='week'||state.period==='month')&&activeProduct===r.id&&activeDate===r.date)render();else input.closest('article')?.remove()}}badge()}catch(e){status.textContent='儲存失敗，點此重試';status.classList.add('error');status.onclick=()=>queueSave(k,r,input,status);message(e.message,true);throw e}});state.queues.set(k,job);job.catch(()=>{});return job}
 async function flush(){for(const[k]of state.timers){const[date,id]=k.split('/');const r=state.records.find(x=>x.date===date&&x.id===id);const inputs=[...$('records').querySelectorAll('input')];const input=inputs.find(x=>x.getAttribute('aria-label')===date+' '+r.name+'差異原因');if(input)queueSave(k,r,input,input.parentElement.querySelector('.save-status'))}await Promise.all([...state.queues.values()]);if(state.dirty.size)throw Error('仍有原因未儲存，請重試後繼續')}
 function renderSummary() {
   const summary = state.summary;
@@ -128,6 +163,7 @@ function renderSummary() {
       try {
         await flush();
         activeProduct = activeProduct === card.dataset.product ? null : card.dataset.product;
+        activeDate = null;
         render();
       } catch (error) {message(error.message, true);}
     };
