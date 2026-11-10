@@ -162,7 +162,7 @@ function attachDayDetails(article, row) {
   grid.style.gap = '12px';
   grid.style.padding = '16px 0';
   grid.style.textAlign = 'center';
-  for (const [label, key] of [['期初', 'opening'], ['損耗', 'loss'], ['銷售', 'sales'], ['理論', 'theoretical'], ['期末', 'actual'], ['差異', 'difference']]) {
+  for (const [label, key] of [['期初', 'opening'], ['進貨', 'purchase'], ['退貨', 'returns'], ['調入', 'transferIn'], ['調出', 'transferOut'], ['損耗', 'loss'], ['銷售', 'sales'], ['理論', 'theoretical'], ['期末', 'actual'], ['差異', 'difference']]) {
     const item = document.createElement('div');
     const value = row[key];
     item.textContent = label + '　' + (typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('zh-TW', {maximumFractionDigits: 2}) : '—');
