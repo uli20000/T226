@@ -121,10 +121,36 @@ function render() {
     }
     return;
   }
+  if (state.period === 'day') {
+    for (const [id] of PRODUCTS) {
+      const row = state.records.find(row => row.id === id);
+      if (!row) continue;
+      if (needsReason(row)) appendPendingReason(row, list);
+      else list.append(savedReason(row));
+    }
+    return;
+  }
   const pending = state.records.filter(needsReason).sort((a, b) => b.date.localeCompare(a.date) || PRODUCTS.findIndex(([id]) => id === a.id) - PRODUCTS.findIndex(([id]) => id === b.id));
   if (pending.length) {
     for (const row of pending) appendPendingReason(row, list);
   }
+}
+function savedReason(row) {
+  const article = document.createElement('article');
+  article.className = 'record';
+  article.dataset.key = row.date + '/' + row.id;
+  article.innerHTML = '<div class="record-title"><h3>' + esc(row.name) + '</h3><small>' + esc(row.date.replaceAll('-', '/')) + '</small></div><div class="record-difference ' + (row.difference < 0 ? 'negative' : 'positive') + '">' + signed(row.difference) + '</div>';
+  const reason = document.createElement('div');
+  reason.className = 'reason';
+  const label = document.createElement('span');
+  label.textContent = '差異原因';
+  const text = document.createElement('p');
+  text.className = 'notice';
+  text.style.margin = '0';
+  text.textContent = row.difference === 0 ? '當日無差異，免填原因' : row.reason;
+  reason.append(label, text);
+  article.append(reason);
+  return article;
 }
 function appendPendingReason(row, container, compact = false) {
   const key = row.date + '/' + row.id;
@@ -146,7 +172,7 @@ function appendPendingReason(row, container, compact = false) {
   };
   container.append(article);
 }
-function queueSave(k,r,input,status){clearTimeout(state.timers.get(k));state.timers.delete(k);state.dirty.add(k);const value=input.value;status.textContent='儲存中…';const job=(state.queues.get(k)||Promise.resolve()).catch(()=>{}).then(async()=>{try{await post('reason',{date:r.date,id:r.id,reason:value,difference:r.difference});r.review=false;if(input.value===value){state.dirty.delete(k);status.textContent=value.trim()?'已儲存':'原因待填';status.classList.remove('error');if(value.trim()){if((state.period==='week'||state.period==='month')&&activeProduct===r.id&&activeDate===r.date)render();else input.closest('article')?.remove()}}badge()}catch(e){status.textContent='儲存失敗，點此重試';status.classList.add('error');status.onclick=()=>queueSave(k,r,input,status);message(e.message,true);throw e}});state.queues.set(k,job);job.catch(()=>{});return job}
+function queueSave(k,r,input,status){clearTimeout(state.timers.get(k));state.timers.delete(k);state.dirty.add(k);const value=input.value;status.textContent='儲存中…';const job=(state.queues.get(k)||Promise.resolve()).catch(()=>{}).then(async()=>{try{await post('reason',{date:r.date,id:r.id,reason:value,difference:r.difference});r.review=false;if(input.value===value){state.dirty.delete(k);status.textContent=value.trim()?'已儲存':'原因待填';status.classList.remove('error');if(value.trim()){if(state.period==='day')input.closest('article')?.replaceWith(savedReason(r));else if((state.period==='week'||state.period==='month')&&activeProduct===r.id&&activeDate===r.date)render();else input.closest('article')?.remove()}}badge()}catch(e){status.textContent='儲存失敗，點此重試';status.classList.add('error');status.onclick=()=>queueSave(k,r,input,status);message(e.message,true);throw e}});state.queues.set(k,job);job.catch(()=>{});return job}
 async function flush(){for(const[k]of state.timers){const[date,id]=k.split('/');const r=state.records.find(x=>x.date===date&&x.id===id);const inputs=[...$('records').querySelectorAll('input')];const input=inputs.find(x=>x.getAttribute('aria-label')===date+' '+r.name+'差異原因');if(input)queueSave(k,r,input,input.parentElement.querySelector('.save-status'))}await Promise.all([...state.queues.values()]);if(state.dirty.size)throw Error('仍有原因未儲存，請重試後繼續')}
 function renderSummary() {
   const summary = state.summary;
