@@ -152,18 +152,22 @@ function attachDayDetails(article, row) {
   const details = document.createElement('details');
   details.style.gridColumn = '1 / -1';
   details.style.width = '100%';
+  details.style.minWidth = '0';
   const summary = document.createElement('summary');
   summary.textContent = '查看當日明細';
   summary.style.textAlign = 'center';
   summary.style.cursor = 'pointer';
   const grid = document.createElement('div');
   grid.style.display = 'grid';
-  grid.style.gridTemplateColumns = 'repeat(auto-fit, minmax(100px, 1fr))';
+  grid.style.gridAutoFlow = 'column';
+  grid.style.gridAutoColumns = 'minmax(max-content, 1fr)';
+  grid.style.overflowX = 'auto';
   grid.style.gap = '12px';
   grid.style.padding = '16px 0';
   grid.style.textAlign = 'center';
   for (const [label, key] of [['期初', 'opening'], ['進貨', 'purchase'], ['退貨', 'returns'], ['調入', 'transferIn'], ['調出', 'transferOut'], ['損耗', 'loss'], ['銷售', 'sales'], ['理論', 'theoretical'], ['期末', 'actual'], ['差異', 'difference']]) {
     const item = document.createElement('div');
+    item.style.whiteSpace = 'nowrap';
     const value = row[key];
     item.textContent = label + '　' + (typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('zh-TW', {maximumFractionDigits: 2}) : '—');
     grid.append(item);
