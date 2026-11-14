@@ -172,8 +172,8 @@ function attachDayDetails(article, row, expanded = false) {
   grid.style.textAlign = 'center';
   for (const [label, key] of [['期初', 'opening'], ['進貨', 'purchase'], ['退貨', 'returns'], ['調入', 'transferIn'], ['調出', 'transferOut'], ['損耗', 'loss'], ['銷售', 'sales'], ['其他', 'other'], ['理論', 'theoretical'], ['期末', 'actual'], ['差異', 'difference'], ['盤點單差異值', 'countDiff'], ['其他盤盈虧', 'otherAdjust']]) {
     const value = row[key];
-    // Breakdown of 差異: shown only when the report has a non-zero value.
-    if ((key === 'countDiff' || key === 'otherAdjust') && !value) continue;
+    // 期初、理論、期末、差異 always show; every other quantity is hidden when it is 0.
+    if (!['opening', 'theoretical', 'actual', 'difference'].includes(key) && !value) continue;
     const item = document.createElement('div');
     item.style.whiteSpace = 'nowrap';
     item.textContent = label + '　' + (typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('zh-TW', {maximumFractionDigits: 2}) : '—');
