@@ -159,7 +159,7 @@ function attachDayDetails(article, row, expanded = false) {
   details.style.width = '100%';
   details.style.minWidth = '0';
   const summary = document.createElement('summary');
-  summary.textContent = '查看當日明細';
+  summary.textContent = '查看當日明細' + (row.nextOpeningGap ? '　⚠ ' + adjustmentHint(row) : '');
   summary.style.textAlign = 'center';
   summary.style.cursor = 'pointer';
   const grid = document.createElement('div');
@@ -170,19 +170,77 @@ function attachDayDetails(article, row, expanded = false) {
   grid.style.gap = '12px';
   grid.style.padding = '16px 0';
   grid.style.textAlign = 'center';
-  for (const [label, key] of [['期初', 'opening'], ['進貨', 'purchase'], ['退貨', 'returns'], ['調入', 'transferIn'], ['調出', 'transferOut'], ['損耗', 'loss'], ['銷售', 'sales'], ['其他', 'other'], ['理論', 'theoretical'], ['期末', 'actual'], ['差異', 'difference']]) {
+  for (const [label, key] of [['期初', 'opening'], ['進貨', 'purchase'], ['退貨', 'returns'], ['調入', 'transferIn'], ['調出', 'transferOut'], ['損耗', 'loss'], ['銷售', 'sales'], ['其他', 'other'], ['理論', 'theoretical'], ['期末', 'actual'], ['庫存異動', 'adjustment'], ['差異', 'difference']]) {
     const item = document.createElement('div');
     item.style.whiteSpace = 'nowrap';
     const value = row[key];
     item.textContent = label + '　' + (typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('zh-TW', {maximumFractionDigits: 2}) : '—');
     grid.append(item);
   }
-  details.append(summary, grid);
+  details.append(summary, grid, adjustmentEditor(row));
   article.append(details);
   article.onclick = event => {
     if (event.target.closest('button, input, label, summary, details')) return;
     details.open = !details.open;
   };
+}
+const qty = n => Number(n).toLocaleString('zh-TW', {maximumFractionDigits: 2});
+function adjustmentHint(row) {
+  const gap = row.nextOpeningGap;
+  return '隔天期初 ' + qty(row.nextOpening) + '，比期末' + (row.adjustment ? '（含異動）' : '') + (gap > 0 ? '多 ' : '少 ') + qty(Math.abs(gap)) + '，可能有庫存異動';
+}
+// Stock corrections are typed by the user; the next-day gap is only a suggestion.
+function adjustmentEditor(row) {
+  const box = document.createElement('div');
+  box.className = 'adjustment-editor';
+  box.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center;padding:0 0 12px';
+  const label = document.createElement('label');
+  label.textContent = '庫存異動 ';
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.step = '0.01';
+  input.style.width = '8em';
+  input.value = row.adjustment ? String(row.adjustment) : '';
+  input.placeholder = '0';
+  input.setAttribute('aria-label', row.date + ' ' + row.name + '庫存異動');
+  label.append(input);
+  const status = document.createElement('span');
+  status.className = 'save-status';
+  status.setAttribute('aria-live', 'polite');
+  status.textContent = row.adjustment ? '期末調整後 ' + qty(row.adjustedActual) : '公司修正盤點時填入，正數加、負數減';
+  box.append(label, status);
+  const save = async value => {
+    const adjustment = value === '' ? 0 : Number(value);
+    if (!Number.isFinite(adjustment)) { status.textContent = '請輸入數字'; status.classList.add('error'); return; }
+    if (adjustment === (row.adjustment || 0)) return;
+    input.disabled = true;
+    status.textContent = '儲存中…';
+    status.classList.remove('error');
+    try {
+      await post('adjustment', {date: row.date, id: row.id, adjustment, actual: row.actual});
+      message(row.date.replaceAll('-', '/') + ' ' + row.name + ' 庫存異動已儲存');
+      await load();
+    } catch (e) {
+      input.disabled = false;
+      status.textContent = '儲存失敗：' + e.message;
+      status.classList.add('error');
+    }
+  };
+  input.onchange = () => save(input.value.trim());
+  input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } };
+  if (row.nextOpeningGap) {
+    const hint = document.createElement('p');
+    hint.className = 'notice';
+    hint.style.cssText = 'margin:0;width:100%;text-align:center';
+    hint.textContent = '⚠ ' + adjustmentHint(row) + '。請確認是公司修正後再套用。';
+    const apply = document.createElement('button');
+    apply.type = 'button';
+    const suggested = Math.round(((row.adjustment || 0) + row.nextOpeningGap) * 100) / 100;
+    apply.textContent = '套用 ' + (suggested > 0 ? '+' : '') + qty(suggested);
+    apply.onclick = () => { input.value = String(suggested); save(String(suggested)); };
+    box.append(hint, apply);
+  }
+  return box;
 }
 function reasonDisplay(row, compact = false) {
   const hasReason = !!row.reason.trim();
@@ -355,8 +413,9 @@ async function previewFiles(files,{latestOnly=false}={}){if(!files.length)return
   const issue=hasError||!latest?'有報表無法判定日期或內容，請檢查雲端檔案後重新讀取。':
    candidates.length!==1?'同一天有多份報表，請整理雲端檔案後重新讀取。':'';
   state.uploads=issue?[]:candidates;
+  const replacing=state.uploads.some(row=>row.result.exists);
   $('upload-list').replaceChildren();
-  $('upload-skipped').textContent=latest?'報表日期 '+latest:'';
+  $('upload-skipped').textContent=latest?'報表日期 '+latest+(replacing?'（已有同日資料，匯入時會詢問是否覆蓋）':''):'';
   $('upload-error').textContent=issue;
   updateImportButton();
   $('close-modal').focus();
@@ -367,8 +426,8 @@ function renderUploads(){$('upload-list').replaceChildren();if($('upload-date-op
 function updateImportButton(){$('confirm-import').disabled=state.busy||!state.uploads.some(u=>u.selected&&!u.error&&u.date)}
 const batchJobs=new WeakMap();
 async function uploadBatch(file,rows,onProgress){const selection=rows.map(u=>({date:u.date,sheet:u.sheet||u.result.sheet,overwrite:!!u.overwrite}));const signature=JSON.stringify(selection);let job=batchJobs.get(file);if(!job||job.signature!==signature){job={id:crypto.randomUUID(),signature};batchJobs.set(file,job)}const form=new FormData();form.append('file',file);form.append('selection',signature);form.append('jobId',job.id);const response=await apiFetch('import-batch',{method:'POST',headers:{'X-WL-Client-Version':'6'},body:form});if(!response.ok){const error=await response.json();throw Error(error.error||'批次匯入失敗')}if(response.headers.get('Content-Type')?.includes('application/json')){const result=await response.json();if(!result.ok)throw Error(result.error||'批次匯入失敗');return result}const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='',complete=null;function consume(line){if(!line.trim())return;const event=JSON.parse(line);if(event.type==='progress')onProgress(event);if(event.type==='complete')complete=event}for(;;){const{value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let end;while((end=buffer.indexOf('\n'))>=0){consume(buffer.slice(0,end));buffer=buffer.slice(end+1)}}buffer+=decoder.decode();if(buffer.trim())consume(buffer);if(!complete)throw Error('連線中斷，部分日期可能已完成；請稍後重試同一批次');if(!complete.ok){batchJobs.delete(file);throw Error(complete.error||'批次匯入失敗')}return complete}
-$('confirm-import').onclick=async()=>{if(state.busy)return;const selected=state.uploads.filter(u=>u.selected&&!u.error);if(!selected.length)return;if(selected.some(u=>!u.date)){$('upload-error').textContent='請先指定日期';return}if(new Set(selected.map(u=>u.date)).size!==selected.length){$('upload-error').textContent='本批次有相同日期，請分批匯入';return}const groups=new Map();for(const u of selected){if(!groups.has(u.file))groups.set(u.file,[]);groups.get(u.file).push(u)}if([...groups.values()].some(rows=>rows.length>31)){$('upload-error').textContent='請一次選取最多 31 天，按月份分批匯入';return}state.busy=true;updateImportButton();$('upload-error').textContent='';const started=Date.now();let processed=0,imported=0,skipped=0;const errors=[];const progress=()=>{$('confirm-import').textContent='已處理 '+processed+'/'+selected.length;$('upload-skipped').textContent='批次匯入中 · '+Math.floor((Date.now()-started)/1000)+' 秒'};progress();const timer=setInterval(progress,1000);try{for(const[file,rows]of groups){const before=processed;try{const result=await uploadBatch(file,rows,event=>{processed=before+event.processed;progress()});processed=before+rows.length;for(const item of result.results){const u=rows.find(u=>u.date===item.date&&u.sheet===item.sheet);if(item.status==='imported'){if(u)u.done=true;imported++}else if(item.status==='skipped'){if(u)u.done=true;skipped++}else errors.push(item.date+'：'+item.error)}}catch(e){errors.push(file.name+'：'+e.message)}}}finally{clearInterval(timer);state.busy=false;$('confirm-import').textContent='確認匯入'}const completed=selected.filter(u=>u.done).sort((a,b)=>b.date.localeCompare(a.date))[0];if(completed){state.period='day';$('anchor').value=completed.date;await load()}const elapsed=((Date.now()-started)/1000).toFixed(2);if(errors.length){state.uploads=state.uploads.filter(u=>!u.done);renderUploads();$('upload-error').textContent=errors.join('；')}else{closeModal();if(completed)$('daily-details').focus()}message('已匯入 '+imported+' 天'+(skipped?'，已存在 '+skipped+' 天略過':'')+' · '+elapsed+' 秒'+(errors.length?'，其餘請重試':''),!!errors.length)};
-$('export-button').onclick=async()=>{const button=$('export-button');button.disabled=true;try{await flush();if(!await load())throw Error('同步失敗，請確認連線後再匯出');if(!state.records.length)throw Error('此日期區間沒有可匯出的資料');await loadExcel();const header=['日期','店號','產品','單位','當日報表期初','進貨','退貨','調入','調出','損耗','銷售','其他','理論庫存','實際盤點','差異','原因','狀態','報表期初','期初來源','期初核對'];const rows=state.records.slice().sort((a,b)=>a.date.localeCompare(b.date)||PRODUCTS.findIndex(p=>p[0]===a.id)-PRODUCTS.findIndex(p=>p[0]===b.id)).map(r=>[r.date,'226',r.name,r.unit,...['opening','purchase','returns','transferIn','transferOut','loss','sales','other','theoretical','actual','difference'].map(k=>Number(r[k].toFixed(2))),r.reason.trim() || (requiresReason(r) ? '原因待填' : ''),!r.difference?'無差異':r.reason.trim()?'已填寫':requiresReason(r)?'原因待填':'免填原因',Number((r.reportOpening??r.opening).toFixed(2)),'本日報表期初','']);const ws=XLSX.utils.aoa_to_sheet([header,...rows]);ws['!cols']=header.map((_,i)=>({wch:i===15?40:i===2?18:14}));ws['!autofilter']={ref:ws['!ref']};for(const k of Object.keys(ws)){if(!k.startsWith('!')&&ws[k].t==='n')ws[k].z='0.0#'}const notes=[['日期','來源檔案','缺少品項／注意事項','原始檔保存'],...state.reports.map(r=>[r.date,r.filename,(r.warnings||[]).join('；'),'網站雲端，OneDrive 待連接'])];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'每日差異');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(notes),'匯入紀錄');const[a,b]=range();XLSX.writeFile(wb,'226-WL-'+a+'-'+b+'.xlsx');message('Excel 已下載')}catch(e){message(e.message,true)}finally{button.disabled=false}};
+$('confirm-import').onclick=async()=>{if(state.busy)return;const selected=state.uploads.filter(u=>u.selected&&!u.error);if(!selected.length)return;if(selected.some(u=>!u.date)){$('upload-error').textContent='請先指定日期';return}if(new Set(selected.map(u=>u.date)).size!==selected.length){$('upload-error').textContent='本批次有相同日期，請分批匯入';return}const groups=new Map();for(const u of selected){if(!groups.has(u.file))groups.set(u.file,[]);groups.get(u.file).push(u)}if([...groups.values()].some(rows=>rows.length>31)){$('upload-error').textContent='請一次選取最多 31 天，按月份分批匯入';return}const existing=selected.filter(u=>!u.overwrite&&u.result?.exists&&u.date===u.result.date);if(existing.length){if(!window.confirm('以下日期已有資料：\n'+existing.map(u=>u.date).sort().join('、')+'\n\n要用這次的檔案覆蓋，更新數字嗎？\n（已填寫的原因會保留）\n\n按「取消」不會匯入，原本的數字維持不變。')){$('upload-error').textContent='已取消匯入，原本的數字未變更';return}for(const u of existing)u.overwrite=true;renderUploads()}state.busy=true;updateImportButton();$('upload-error').textContent='';const started=Date.now();let processed=0,imported=0,skipped=0;const errors=[];const progress=()=>{$('confirm-import').textContent='已處理 '+processed+'/'+selected.length;$('upload-skipped').textContent='批次匯入中 · '+Math.floor((Date.now()-started)/1000)+' 秒'};progress();const timer=setInterval(progress,1000);try{for(const[file,rows]of groups){const before=processed;try{const result=await uploadBatch(file,rows,event=>{processed=before+event.processed;progress()});processed=before+rows.length;for(const item of result.results){const u=rows.find(u=>u.date===item.date&&u.sheet===item.sheet);if(item.status==='imported'){if(u)u.done=true;imported++}else if(item.status==='skipped'){if(u)u.done=true;skipped++}else errors.push(item.date+'：'+item.error)}}catch(e){errors.push(file.name+'：'+e.message)}}}finally{clearInterval(timer);state.busy=false;$('confirm-import').textContent='確認匯入'}const completed=selected.filter(u=>u.done).sort((a,b)=>b.date.localeCompare(a.date))[0];if(completed){state.period='day';$('anchor').value=completed.date;await load()}const elapsed=((Date.now()-started)/1000).toFixed(2);if(errors.length){state.uploads=state.uploads.filter(u=>!u.done);renderUploads();$('upload-error').textContent=errors.join('；')}else{closeModal();if(completed)$('daily-details').focus()}message('已匯入 '+imported+' 天'+(skipped?'，已存在 '+skipped+' 天未勾選覆蓋，數字沒有更新':'')+' · '+elapsed+' 秒'+(errors.length?'，其餘請重試':''),!!errors.length||!!skipped)};
+$('export-button').onclick=async()=>{const button=$('export-button');button.disabled=true;try{await flush();if(!await load())throw Error('同步失敗，請確認連線後再匯出');if(!state.records.length)throw Error('此日期區間沒有可匯出的資料');await loadExcel();const header=['日期','店號','產品','單位','當日報表期初','進貨','退貨','調入','調出','損耗','銷售','其他','理論庫存','實際盤點','庫存異動','差異','原因','狀態','報表期初','期初來源','期初核對'];const rows=state.records.slice().sort((a,b)=>a.date.localeCompare(b.date)||PRODUCTS.findIndex(p=>p[0]===a.id)-PRODUCTS.findIndex(p=>p[0]===b.id)).map(r=>[r.date,'226',r.name,r.unit,...['opening','purchase','returns','transferIn','transferOut','loss','sales','other','theoretical','actual','adjustment','difference'].map(k=>Number((r[k]||0).toFixed(2))),r.reason.trim() || (requiresReason(r) ? '原因待填' : ''),!r.difference?'無差異':r.reason.trim()?'已填寫':requiresReason(r)?'原因待填':'免填原因',Number((r.reportOpening??r.opening).toFixed(2)),'本日報表期初','']);const ws=XLSX.utils.aoa_to_sheet([header,...rows]);ws['!cols']=header.map((_,i)=>({wch:i===16?40:i===2?18:14}));ws['!autofilter']={ref:ws['!ref']};for(const k of Object.keys(ws)){if(!k.startsWith('!')&&ws[k].t==='n')ws[k].z='0.0#'}const notes=[['日期','來源檔案','缺少品項／注意事項','原始檔保存'],...state.reports.map(r=>[r.date,r.filename,(r.warnings||[]).join('；'),'網站雲端，OneDrive 待連接'])];const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'每日差異');XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(notes),'匯入紀錄');const[a,b]=range();XLSX.writeFile(wb,'226-WL-'+a+'-'+b+'.xlsx');message('Excel 已下載')}catch(e){message(e.message,true)}finally{button.disabled=false}};
 window.addEventListener('beforeunload',e=>{if(state.dirty.size){e.preventDefault();e.returnValue=''}});document.addEventListener('keydown',e=>{const modal=!$('manager-modal').hidden?$('manager-modal'):!$('upload-modal').hidden?$('upload-modal'):null;if(!modal)return;if(e.key==='Escape'){if(modal.id==='manager-modal')$('close-manager').click();else closeModal()}if(e.key==='Tab'){const nodes=[...modal.querySelectorAll('button:not(:disabled),input:not(:disabled),a[href]')].filter(node=>node.getClientRects().length);const first=nodes[0],last=nodes.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus()}}});
 $('select-month').onclick=()=>{const month=$('upload-month').value;if(!month)return;for(const u of state.uploads)u.selected=!u.error&&u.date.startsWith(month);renderUploads()};
 let materialQuery='',materialOffset=0,materialRange='',materialFingerprint='',materialBusy=false,materialReload=false;
