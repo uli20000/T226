@@ -170,10 +170,12 @@ function attachDayDetails(article, row, expanded = false) {
   grid.style.gap = '12px';
   grid.style.padding = '16px 0';
   grid.style.textAlign = 'center';
-  for (const [label, key] of [['期初', 'opening'], ['進貨', 'purchase'], ['退貨', 'returns'], ['調入', 'transferIn'], ['調出', 'transferOut'], ['損耗', 'loss'], ['銷售', 'sales'], ['其他', 'other'], ['理論', 'theoretical'], ['期末', 'actual'], ['差異', 'difference']]) {
+  for (const [label, key] of [['期初', 'opening'], ['進貨', 'purchase'], ['退貨', 'returns'], ['調入', 'transferIn'], ['調出', 'transferOut'], ['損耗', 'loss'], ['銷售', 'sales'], ['其他', 'other'], ['理論', 'theoretical'], ['期末', 'actual'], ['差異', 'difference'], ['盤點單差異值', 'countDiff'], ['其他盤盈虧', 'otherAdjust']]) {
+    const value = row[key];
+    // Breakdown of 差異: shown only when the report has a non-zero value.
+    if ((key === 'countDiff' || key === 'otherAdjust') && !value) continue;
     const item = document.createElement('div');
     item.style.whiteSpace = 'nowrap';
-    const value = row[key];
     item.textContent = label + '　' + (typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('zh-TW', {maximumFractionDigits: 2}) : '—');
     grid.append(item);
   }
