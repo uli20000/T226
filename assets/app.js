@@ -285,7 +285,7 @@ async function decodeFiles(items,{crypto,File,atob}){
   const bytes=Uint8Array.from(atob(item.base64),c=>c.charCodeAt(0));
   const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
   if(bytes.length!==item.size||hash!==item.sha256)throw Error('雲端檔案傳輸核對失敗');
-  if(seen.has(hash))continue;seen.add(hash);files.push(new File([bytes],item.name,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  if(seen.has(hash))continue;seen.add(hash);const file=new File([bytes],item.name,{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});if(item.preview&&typeof item.preview==='object'&&!Array.isArray(item.preview))file.wlPreview=item.preview;files.push(file);
  }
  return files;
 }
@@ -349,7 +349,7 @@ $('upload-button').onclick=()=>{if(!managerBusy)$('files').click()};$('close-mod
 function uploadForm(file,date='',overwrite=false,sheet=''){const f=new FormData();f.append('file',file);if(sheet)f.append('sheet',sheet);if(date)f.append('date',date);if(overwrite)f.append('overwrite','yes');return f}
 $('files').onchange=()=>{if(!$('files').files.length)return;closeManager();previewFiles([...$('files').files])};
 async function previewFiles(files,{latestOnly=false}={}){if(!files.length)return;if(files.length>31){message('一次最多上傳 31 個檔案',true);return}focusBefore=document.activeElement;$('upload-date-options').hidden=latestOnly;$('upload-modal').hidden=false;$('upload-list').innerHTML='<div class="loading">正在讀取報表…</div>';$('upload-error').textContent='';$('confirm-import').disabled=true;state.uploads=[];state.busy=true;
- for(const file of files){try{const result=await api('preview',{method:'POST',body:uploadForm(file)});if(!Array.isArray(result.sheets)&&!Array.isArray(result.items))throw Error('預覽格式已更新，請重新整理後再選檔');for(const item of result.sheets||[result])state.uploads.push({file,result:item,sheet:item.sheet,date:item.date||'',error:item.error||(!Array.isArray(item.items)?'此分頁沒有有效報表資料':null),selected:!item.error,overwrite:false})}catch(e){state.uploads.push({file,error:e.message})}}state.busy=false;
+ for(const file of files){try{const result=file.wlPreview||await api('preview',{method:'POST',body:uploadForm(file)});if(!Array.isArray(result.sheets)&&!Array.isArray(result.items))throw Error('預覽格式已更新，請重新整理後再選檔');for(const item of result.sheets||[result])state.uploads.push({file,result:item,sheet:item.sheet,date:item.date||'',error:item.error||(!Array.isArray(item.items)?'此分頁沒有有效報表資料':null),selected:!item.error,overwrite:false})}catch(e){state.uploads.push({file,error:e.message})}}state.busy=false;
  const latest=latestOnly?state.uploads.reduce((date,row)=>!row.error&&row.date>date?row.date:date,''):'';
  if(latestOnly){
   const candidates=state.uploads.filter(row=>!row.error&&row.date===latest&&latest);
